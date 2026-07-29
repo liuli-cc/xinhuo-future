@@ -1,0 +1,14 @@
+{
+  "name": "xinhuo-api",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@cloudbase/node-sdk": "^3.12.0",
+    "adm-zip": "^0.6.0",
+    "pdf-parse": "1.1.1"
+  }
+}
