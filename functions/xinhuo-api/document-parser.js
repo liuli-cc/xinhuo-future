@@ -1,9 +1,10 @@
 "use strict";
 
 const AdmZip = require("adm-zip");
+const WordExtractor = require("word-extractor");
 
 const MAX_RESUME_BYTES = 3 * 1024 * 1024;
-const ALLOWED_EXTENSIONS = new Set([".pdf", ".docx", ".txt"]);
+const ALLOWED_EXTENSIONS = new Set([".pdf", ".doc", ".docx", ".txt", ".md", ".markdown"]);
 
 class ResumeDocumentError extends Error {
   constructor(message, statusCode = 400) {
@@ -44,6 +45,12 @@ function assertDocumentSignature(buffer, extension) {
   }
   if (extension === ".docx" && !(buffer[0] === 0x50 && buffer[1] === 0x4b)) {
     throw new ResumeDocumentError("文件扩展名是DOCX，但内容不是有效Word文档，请重新导出后上传");
+  }
+  if (
+    extension === ".doc"
+    && !buffer.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]))
+  ) {
+    throw new ResumeDocumentError("文件扩展名是DOC，但内容不是有效的旧版Word文档，请重新另存后上传");
   }
 }
 
@@ -142,10 +149,27 @@ function extractDocxText(buffer) {
   }
 }
 
+async function extractLegacyDocText(buffer) {
+  try {
+    const extractor = new WordExtractor();
+    const document = await extractor.extract(buffer);
+    return normalizeExtractedText([
+      document.getBody(),
+      document.getTextboxes({ includeHeadersAndFooters: false }),
+      document.getHeaders(),
+      document.getFootnotes(),
+      document.getEndnotes(),
+    ].filter(Boolean).join("\n"));
+  } catch (error) {
+    console.error("[xinhuo-api] Legacy DOC extraction failed:", error);
+    throw new ResumeDocumentError("DOC解析失败，请确认文件未损坏，或另存为DOCX后重试");
+  }
+}
+
 async function parseResumeDocument({ fileName, fileSize, base64 }) {
   const extension = extensionOf(fileName);
   if (!ALLOWED_EXTENSIONS.has(extension)) {
-    throw new ResumeDocumentError(`不支持${extension || "未知"}格式，请上传PDF、DOCX或TXT`);
+    throw new ResumeDocumentError(`不支持${extension || "未知"}格式，请上传PDF、Word、TXT或Markdown`);
   }
 
   const buffer = decodeBase64Document(base64, Number(fileSize) || 0);
@@ -155,12 +179,14 @@ async function parseResumeDocument({ fileName, fileSize, base64 }) {
     ? await extractPdfText(buffer)
     : extension === ".docx"
       ? extractDocxText(buffer)
+      : extension === ".doc"
+        ? await extractLegacyDocText(buffer)
       : normalizeExtractedText(buffer.toString("utf8"));
 
   if (text.replace(/\s/g, "").length < 20) {
     throw new ResumeDocumentError(
       extension === ".pdf"
-        ? "PDF中没有提取到足够文字；扫描版简历请先进行OCR或另存为DOCX"
+        ? "PDF中没有提取到足够文字；系统可返回浏览器使用本地OCR后重新识别"
         : "简历内容过短，请上传包含完整经历的文件",
     );
   }
@@ -175,6 +201,7 @@ module.exports = {
   decodeBase64Document,
   assertDocumentSignature,
   extractDocxText,
+  extractLegacyDocText,
   extractPdfText,
   parseResumeDocument,
 };

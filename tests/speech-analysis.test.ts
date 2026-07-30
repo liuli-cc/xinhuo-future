@@ -20,6 +20,7 @@ test("口头语统计", () => {
   const metrics = analyzeSpeechMetrics(text, 20000, 18000, [], 1000, [], 180000);
   assert.ok(metrics.fillerWordCounts["就是说"] >= 2);
   assert.ok(Object.values(metrics.fillerWordCounts).reduce((a, b) => a + b, 0) > 0);
+  assert.ok(metrics.fillerWordsPerMinute > 0);
 });
 
 test("STAR结构检测", () => {

@@ -1369,6 +1369,9 @@ const MODEL_PROVIDERS = {
   deepseek: { label: "DeepSeek", endpoint: "https://api.deepseek.com/chat/completions" },
   kimi: { label: "Kimi", endpoint: "https://api.moonshot.cn/v1/chat/completions" },
   glm: { label: "智谱 GLM", endpoint: "https://open.bigmodel.cn/api/paas/v4/chat/completions" },
+  qwen: { label: "通义千问", endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions" },
+  mimo: { label: "小米 MiMo", endpoint: "https://api.xiaomimimo.com/v1/chat/completions" },
+  doubao: { label: "豆包", endpoint: "https://ark.cn-beijing.volces.com/api/v3/chat/completions" },
 };
 
 function parseModelJson(text) {
@@ -1423,11 +1426,13 @@ async function handleInterviewModel(event, method, payload) {
     model,
     messages,
     stream: false,
-    ...(providerKey === "deepseek" ? {
+    ...(["deepseek", "kimi", "mimo"].includes(providerKey) ? {
       thinking: { type: "disabled" },
-      ...(action === "test" ? {} : { response_format: { type: "json_object" } }),
     } : {}),
-    ...(providerKey === "kimi"
+    ...(providerKey === "deepseek" && action !== "test"
+      ? { response_format: { type: "json_object" } }
+      : {}),
+    ...(["kimi", "mimo"].includes(providerKey)
       ? { max_completion_tokens: maxOutputTokens }
       : { max_tokens: maxOutputTokens }),
   };
@@ -1465,6 +1470,18 @@ async function handleInterviewModel(event, method, payload) {
 
 async function removeResumeChunks(chunks) {
   await Promise.allSettled((chunks || []).map(chunk => removeDocument("xh_resume_upload_chunks", chunk._id)));
+}
+
+function desensitizeResumeText(text) {
+  const piiPatterns = [
+    [/1[3-9]\d{9}/g, "[手机号已隐藏]"],
+    [/\d{17}[\dXx]/g, "[身份证号已隐藏]"],
+    [/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[邮箱已隐藏]"],
+    [/(?:住址|地址|家庭住址)[:：]\s*(.+?)(?:[\n\r]|$)/g, "地址：[已隐藏]"],
+  ];
+  let cleaned = String(text || "").replace(/\u0000/g, "").slice(0, 50_000);
+  for (const [pattern, replacement] of piiPatterns) cleaned = cleaned.replace(pattern, replacement);
+  return cleaned;
 }
 
 async function handleResumeChunk(event, method, payload) {
@@ -1532,20 +1549,22 @@ async function handleResumeParse(event, method, payload) {
   }
   await removeResumeChunks(storedChunks);
 
-  // 脱敏
-  const piiPatterns = [
-    [/1[3-9]\d{9}/g, "[手机号已隐藏]"],
-    [/\d{17}[\dXx]/g, "[身份证号已隐藏]"],
-    [/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[邮箱已隐藏]"],
-    [/(?:住址|地址|家庭住址)[:：]\s*(.+?)(?:[\n\r]|$)/g, "地址：[已隐藏]"],
-  ];
-  for (const [pattern, replacement] of piiPatterns) {
-    text = text.replace(pattern, replacement);
-  }
-
+  text = desensitizeResumeText(text);
   const resume = parseResumeStructure(text);
 
   return output(200, { resume });
+}
+
+async function handleResumeTextParse(event, method, payload) {
+  const auth = await requireUser(event);
+  if (!auth) return fail(401, "请先登录");
+  if (method !== "POST") return fail(405, "不支持的请求方法");
+  const source = clean(payload.source || "本地OCR", 80);
+  const text = desensitizeResumeText(payload.text);
+  if (text.replace(/\s/g, "").length < 20) return fail(400, "识别文字过少，请换用更清晰的简历图片");
+  const resume = parseResumeStructure(text);
+  console.log("[xinhuo-api] Resume OCR text parsed:", { source, textLength: text.length });
+  return output(200, { resume, source, textLength: text.length });
 }
 
 /* ── NEW: Job parsing handler ── */
@@ -1641,9 +1660,9 @@ async function handleInterviewPlan(event, method, payload) {
       model,
       messages: [{ role: "system", content: system }, { role: "user", content: userPrompt }],
       stream: false,
-      ...(providerKey === "deepseek" ? { thinking: { type: "disabled" }, response_format: { type: "json_object" } } : {}),
-      max_tokens: providerKey === "kimi" ? 1000 : undefined,
-      ...(providerKey !== "kimi" ? { max_tokens: 1000 } : {}),
+      ...(["deepseek", "kimi", "mimo"].includes(providerKey) ? { thinking: { type: "disabled" } } : {}),
+      ...(providerKey === "deepseek" ? { response_format: { type: "json_object" } } : {}),
+      ...(["kimi", "mimo"].includes(providerKey) ? { max_completion_tokens: 1000 } : { max_tokens: 1000 }),
     }),
     signal: AbortSignal.timeout(35000),
   });
@@ -1801,7 +1820,7 @@ async function handleSpeechMetrics(event, method, payload) {
   if (method !== "POST") return fail(405, "不支持的请求方法");
 
   const transcript = clean(payload.transcript, 10000);
-  const totalDurationMs = Math.min(60_000, Math.max(1000, Number(payload.totalDurationMs) || 0));
+  const totalDurationMs = Math.min(90_000, Math.max(1000, Number(payload.totalDurationMs) || 0));
   const captureStats = payload.captureStats && typeof payload.captureStats === "object" ? payload.captureStats : {};
 
   if (!transcript) return fail(400, "请提供转写文本");
@@ -1833,6 +1852,7 @@ async function handleSpeechMetrics(event, method, payload) {
     const count = (transcript.match(new RegExp(fw, "g")) || []).length;
     if (count > 0) fillerCounts[fw] = count;
   }
+  const totalFillers = Object.values(fillerCounts).reduce((sum, value) => sum + value, 0);
 
   // STAR结构
   const starPatterns = [/当时|背景|情境|在(.+?)期间/, /目标|任务|负责|需要|要求/, /我先|我负责|我采用|我通过|具体做法/, /最终|结果|提升|降低|完成|获得|达成/];
@@ -1846,10 +1866,11 @@ async function handleSpeechMetrics(event, method, payload) {
     pauseRatio: Math.min(100, Math.round(totalPauseMs / totalDurationMs * 100)),
     thinkingBeforeAnswerMs: Math.min(totalDurationMs, Math.max(0, Math.round(Number(captureStats.thinkingBeforeAnswerMs) || 0))),
     fillerWordCounts: fillerCounts,
+    fillerWordsPerMinute: Math.round(totalFillers / totalSeconds * 60 * 10) / 10,
     repeatedPhrases: [],
     averageVolume,
     volumeVariance,
-    isOvertime: totalDurationMs > 60_000,
+    isOvertime: totalDurationMs > 90_000,
     starCompleteness: starComplete,
   };
 
@@ -1911,6 +1932,7 @@ async function dispatch(event) {
   if (path === "/interview") return handleInterview(event, method, payload);
   if (path === "/interview/resume/chunk") return handleResumeChunk(event, method, payload);
   if (path === "/interview/resume/parse") return handleResumeParse(event, method, payload);
+  if (path === "/interview/resume/parse-text") return handleResumeTextParse(event, method, payload);
   if (path === "/interview/job/parse") return handleJobParse(event, method, payload);
   if (path === "/interview/plan") return handleInterviewPlan(event, method, payload);
   if (path === "/interview/speech/status") {

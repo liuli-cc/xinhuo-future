@@ -31,9 +31,19 @@ export const ALLOWED_RESUME_MIME = [
   "application/acrobat",
   "application/vnd.pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
   "text/plain",
+  "text/markdown",
+  "text/x-markdown",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/bmp",
 ];
-export const ALLOWED_RESUME_EXT = [".pdf", ".docx", ".txt"];
+export const ALLOWED_RESUME_EXT = [
+  ".pdf", ".doc", ".docx", ".txt", ".md", ".markdown",
+  ".jpg", ".jpeg", ".png", ".webp", ".bmp",
+];
 
 const PII_PATTERNS: Array<{ name: string; regex: RegExp; replacement: string }> = [
   { name: "手机号", regex: /1[3-9]\d{9}/g, replacement: "[手机号已隐藏]" },
@@ -48,12 +58,12 @@ export function validateResumeFile(name: string, size: number, mimeType: string)
   if (size <= 0) return "文件大小为0，请选择有效简历文件";
   if (size > RESUME_MAX_BYTES) return `文件大小 ${(size / 1024 / 1024).toFixed(1)}MB 超过 ${RESUME_MAX_MB}MB 限制，请压缩后重新上传`;
   const ext = name.toLowerCase().slice(name.lastIndexOf("."));
-  if (!ALLOWED_RESUME_EXT.includes(ext)) return `不支持 ${ext} 格式，请上传 PDF、DOCX 或 TXT 格式简历`;
+  if (!ALLOWED_RESUME_EXT.includes(ext)) return `不支持 ${ext} 格式，请上传 PDF、Word、TXT、Markdown 或常见图片格式简历`;
   // Safari and some office suites report an empty or generic MIME type. The
   // backend verifies the file signature, so do not reject those valid files in
   // the browser.
   if (mimeType && mimeType !== "application/octet-stream" && !ALLOWED_RESUME_MIME.includes(mimeType)) {
-    return `文件类型 ${mimeType} 与扩展名不匹配，请重新导出标准 PDF、DOCX 或 TXT 文件`;
+    return `文件类型 ${mimeType} 与扩展名不匹配，请重新导出标准文档或图片文件`;
   }
   return null;
 }

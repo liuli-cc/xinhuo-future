@@ -13,6 +13,7 @@ export type SpeechMetrics = {
   pauseRatio: number;
   thinkingBeforeAnswerMs: number;
   fillerWordCounts: Record<string, number>;
+  fillerWordsPerMinute: number;
   repeatedPhrases: string[];
   averageVolume: number;
   volumeVariance: number;
@@ -62,6 +63,8 @@ export function analyzeSpeechMetrics(
     const count = (transcript.match(new RegExp(fw, "g")) || []).length;
     if (count > 0) fillerWordCounts[fw] = count;
   }
+  const totalFillers = Object.values(fillerWordCounts).reduce((sum, value) => sum + value, 0);
+  const fillerWordsPerMinute = Math.round(totalFillers / totalSeconds * 60 * 10) / 10;
 
   const repeatedPhrases: string[] = [];
   let match;
@@ -91,6 +94,7 @@ export function analyzeSpeechMetrics(
     pauseRatio,
     thinkingBeforeAnswerMs: Math.round(thinkingBeforeMs),
     fillerWordCounts,
+    fillerWordsPerMinute,
     repeatedPhrases,
     averageVolume: avgVolume,
     volumeVariance,
@@ -119,10 +123,10 @@ export function describeExpression(metrics: SpeechMetrics): ExpressionObservatio
       : "音量变化在正常范围";
 
   const totalFillers = Object.values(metrics.fillerWordCounts).reduce((s, v) => s + v, 0);
-  const fillers = totalFillers > 8
-    ? `口头语较多（${totalFillers}次），建议减少"${Object.entries(metrics.fillerWordCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? ""}"等词`
-    : totalFillers > 3
-      ? `有少量口头语（${totalFillers}次）`
+  const fillers = metrics.fillerWordsPerMinute > 6
+    ? `口头语较密集（${metrics.fillerWordsPerMinute}次/分），建议减少"${Object.entries(metrics.fillerWordCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? ""}"等词`
+    : metrics.fillerWordsPerMinute > 3
+      ? `有少量口头语（${totalFillers}次，${metrics.fillerWordsPerMinute}次/分）`
       : "口头语较少，表达干净";
 
   const structure = metrics.starCompleteness >= 4
@@ -146,6 +150,7 @@ export function defaultSpeechMetrics(): SpeechMetrics {
     pauseRatio: 0,
     thinkingBeforeAnswerMs: 0,
     fillerWordCounts: {},
+    fillerWordsPerMinute: 0,
     repeatedPhrases: [],
     averageVolume: 0,
     volumeVariance: 0,

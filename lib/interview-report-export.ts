@@ -32,6 +32,10 @@ export function interviewReportFileName(targetRole: string, calculatedAt: string
   return `薪火未来-模拟面试报告-${safeRole}-${date}.md`;
 }
 
+export function interviewReportFileStem(targetRole: string, calculatedAt: string): string {
+  return interviewReportFileName(targetRole, calculatedAt).replace(/\.md$/i, "");
+}
+
 export function buildInterviewReportMarkdown(
   report: InterviewReportV2,
   context: InterviewReportExportContext,
@@ -41,7 +45,7 @@ export function buildInterviewReportMarkdown(
     .join("\n");
   const details = report.scoredAnswers.map((item, index) => {
     const speech = item.speechMetrics
-      ? `\n- 语速：${item.speechMetrics.wordsPerMinute} 字/分\n- 停顿占比：${item.speechMetrics.pauseRatio}%\n- STAR 完整度：${item.speechMetrics.starCompleteness}/4`
+      ? `\n- 语速：${item.speechMetrics.wordsPerMinute} 字/分\n- 停顿占比：${item.speechMetrics.pauseRatio}%\n- 开口前思考：${(item.speechMetrics.thinkingBeforeAnswerMs / 1000).toFixed(1)} 秒\n- 口头语密度：${item.speechMetrics.fillerWordsPerMinute} 次/分\n- STAR 完整度：${item.speechMetrics.starCompleteness}/4`
       : "\n- 本题未记录语音指标";
     const risks = item.riskPoints.length ? item.riskPoints.join("；") : "无明显风险点";
     return [
@@ -87,6 +91,15 @@ export function buildInterviewReportMarkdown(
     "## 下一步行动",
     "",
     asList(report.actionPlan ?? [], "完成一次新的模拟面试并对比前后得分。"),
+    "",
+    "## 口语表达观察",
+    "",
+    `- 有效语音回答：${report.expressionSummary.answersWithVoice} 轮`,
+    `- 平均语速：${report.expressionSummary.averageWordsPerMinute} 字/分`,
+    `- 平均停顿占比：${report.expressionSummary.averagePauseRatio}%`,
+    `- 平均开口前思考：${report.expressionSummary.averageThinkingSeconds} 秒`,
+    `- 口头语总计：${report.expressionSummary.totalFillers} 次（${report.expressionSummary.fillerWordsPerMinute} 次/分）`,
+    `- 观察结论：${report.expressionSummary.observation}`,
     "",
     "## 逐题复盘",
     "",

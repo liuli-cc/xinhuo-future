@@ -63,7 +63,10 @@ test("文件大小和类型限制", () => {
   assert.ok(validateResumeFile("resume.exe", 1024, "application/pdf")?.includes("不支持"));
   assert.ok(validateResumeFile("resume.pdf", 6 * 1024 * 1024, "application/pdf")?.includes("超过"));
   assert.ok(validateResumeFile("resume.pdf", 0, "application/pdf")?.includes("0"));
-  assert.ok(validateResumeFile("resume.jpg", 1024, "image/jpeg")?.includes("不支持"));
+  assert.equal(validateResumeFile("resume.jpg", 1024, "image/jpeg"), null);
+  assert.equal(validateResumeFile("resume.png", 1024, "image/png"), null);
+  assert.equal(validateResumeFile("resume.doc", 1024, "application/msword"), null);
+  assert.equal(validateResumeFile("resume.md", 1024, "text/markdown"), null);
 });
 
 test("结构化摘要生成", () => {

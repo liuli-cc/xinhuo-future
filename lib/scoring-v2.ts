@@ -42,6 +42,15 @@ export type InterviewReportV2 = {
   strengths: string[];
   improvements: string[];
   actionPlan: string[];
+  expressionSummary: {
+    answersWithVoice: number;
+    averageWordsPerMinute: number;
+    averagePauseRatio: number;
+    averageThinkingSeconds: number;
+    totalFillers: number;
+    fillerWordsPerMinute: number;
+    observation: string;
+  };
   trendNote: string;
   calculatedAt: string;
 };
@@ -108,15 +117,19 @@ export function scoreAnswerV2(
   const logicStructure = clamp(starElements / 4 * 15);
 
   // 语言表达 (15)
-  let languageExpression = clamp(9);
+  let languageExpression = 5;
   if (speechMetrics) {
-    if (speechMetrics.wordsPerMinute >= 120 && speechMetrics.wordsPerMinute <= 220) languageExpression += 2;
-    else languageExpression += 0;
-    if (speechMetrics.pauseRatio < 25) languageExpression += 2;
-    else languageExpression += 0;
-    const totalFillers = Object.values(speechMetrics.fillerWordCounts).reduce((s, v) => s + v, 0);
-    if (totalFillers <= 3) languageExpression += 2;
-    else languageExpression += 0;
+    if (speechMetrics.wordsPerMinute >= 110 && speechMetrics.wordsPerMinute <= 220) languageExpression += 3;
+    else if (speechMetrics.wordsPerMinute >= 80 && speechMetrics.wordsPerMinute <= 250) languageExpression += 1;
+    if (speechMetrics.pauseRatio >= 8 && speechMetrics.pauseRatio <= 35) languageExpression += 2;
+    else if (speechMetrics.pauseRatio < 50) languageExpression += 1;
+    if (speechMetrics.fillerWordsPerMinute <= 2.5) languageExpression += 3;
+    else if (speechMetrics.fillerWordsPerMinute <= 5) languageExpression += 2;
+    else if (speechMetrics.fillerWordsPerMinute <= 8) languageExpression += 1;
+    if (speechMetrics.thinkingBeforeAnswerMs <= 8_000) languageExpression += 2;
+    else if (speechMetrics.thinkingBeforeAnswerMs <= 15_000) languageExpression += 1;
+  } else {
+    languageExpression = 9;
   }
   languageExpression = clamp(languageExpression);
 
@@ -148,6 +161,12 @@ export function scoreAnswerV2(
   if (starElements < 2) riskPoints.push("面试官可能追问具体行动细节");
   if (!quantified) riskPoints.push("面试官可能追问量化成果");
   if (matchedSkills.length === 0 && jobSkills.length > 0) riskPoints.push("未涉及岗位要求的关键技能");
+  if (speechMetrics?.fillerWordsPerMinute && speechMetrics.fillerWordsPerMinute > 6) {
+    riskPoints.push(`口头语密度偏高（${speechMetrics.fillerWordsPerMinute}次/分）`);
+  }
+  if (speechMetrics?.thinkingBeforeAnswerMs && speechMetrics.thinkingBeforeAnswerMs > 15_000) {
+    riskPoints.push("开口前思考时间超过15秒，可先用一句结论建立回答框架");
+  }
 
   return {
     question,
@@ -170,13 +189,22 @@ export function scoreAnswerV2(
 export function generateReportV2(scoredAnswers: ScoredAnswer[]): InterviewReportV2 {
   if (scoredAnswers.length === 0) {
     return {
-      engineVersion: "XH-SCORE-V2.1",
+      engineVersion: "XH-SCORE-V3.0",
       overallScore: 0,
       dimensions: { content: 0, roleMatch: 0, professionalDepth: 0, logicStructure: 0, languageExpression: 0 },
       scoredAnswers: [],
       strengths: [],
       improvements: [],
       actionPlan: [],
+      expressionSummary: {
+        answersWithVoice: 0,
+        averageWordsPerMinute: 0,
+        averagePauseRatio: 0,
+        averageThinkingSeconds: 0,
+        totalFillers: 0,
+        fillerWordsPerMinute: 0,
+        observation: "本次没有可用的语音指标",
+      },
       trendNote: "",
       calculatedAt: new Date().toISOString(),
     };
@@ -244,15 +272,44 @@ export function generateReportV2(scoredAnswers: ScoredAnswer[]): InterviewReport
       ? "整体表现呈上升趋势"
       : "后半段表现有波动，建议加强稳定性")
     : "";
+  const voiceAnswers = scoredAnswers.flatMap(answer => answer.speechMetrics ? [answer.speechMetrics] : []);
+  const metricAverage = (pick: (metric: SpeechMetrics) => number) => voiceAnswers.length
+    ? Math.round(voiceAnswers.reduce((sum, metric) => sum + pick(metric), 0) / voiceAnswers.length * 10) / 10
+    : 0;
+  const totalFillers = voiceAnswers.reduce(
+    (sum, metric) => sum + Object.values(metric.fillerWordCounts).reduce((inner, value) => inner + value, 0),
+    0,
+  );
+  const totalVoiceMinutes = voiceAnswers.reduce((sum, metric) => sum + metric.totalAnswerSeconds, 0) / 60;
+  const fillerWordsPerMinute = totalVoiceMinutes > 0
+    ? Math.round(totalFillers / totalVoiceMinutes * 10) / 10
+    : 0;
+  const averageThinkingSeconds = metricAverage(metric => metric.thinkingBeforeAnswerMs / 1000);
+  const expressionSummary = {
+    answersWithVoice: voiceAnswers.length,
+    averageWordsPerMinute: metricAverage(metric => metric.wordsPerMinute),
+    averagePauseRatio: metricAverage(metric => metric.pauseRatio),
+    averageThinkingSeconds,
+    totalFillers,
+    fillerWordsPerMinute,
+    observation: voiceAnswers.length === 0
+      ? "本次没有可用的语音指标"
+      : fillerWordsPerMinute > 6
+        ? "口头语密度偏高，建议先停顿组织结构，再用完整句表达"
+        : averageThinkingSeconds > 15
+          ? "开口前思考时间较长，可先给结论，再补充依据"
+          : "思考停顿与口头语处于可接受范围，表达节奏总体自然",
+  };
 
   return {
-    engineVersion: "XH-SCORE-V2.1",
+    engineVersion: "XH-SCORE-V3.0",
     overallScore,
     dimensions,
     scoredAnswers,
     strengths,
     improvements,
     actionPlan,
+    expressionSummary,
     trendNote,
     calculatedAt: new Date().toISOString(),
   };

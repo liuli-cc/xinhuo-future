@@ -10,14 +10,24 @@ import {
   sanitizeModelName,
 } from "../lib/interview-model.ts";
 
-test("只允许三家预设官方模型服务商", () => {
+test("只允许六家预设官方模型服务商", () => {
   assert.equal(isInterviewModelProvider("deepseek"), true);
   assert.equal(isInterviewModelProvider("kimi"), true);
   assert.equal(isInterviewModelProvider("glm"), true);
+  assert.equal(isInterviewModelProvider("qwen"), true);
+  assert.equal(isInterviewModelProvider("mimo"), true);
+  assert.equal(isInterviewModelProvider("doubao"), true);
   assert.equal(isInterviewModelProvider("custom"), false);
   assert.match(INTERVIEW_MODEL_PROVIDERS.deepseek.endpoint, /^https:\/\/api\.deepseek\.com\//);
   assert.match(INTERVIEW_MODEL_PROVIDERS.kimi.endpoint, /^https:\/\/api\.moonshot\.cn\//);
   assert.match(INTERVIEW_MODEL_PROVIDERS.glm.endpoint, /^https:\/\/open\.bigmodel\.cn\//);
+  assert.match(INTERVIEW_MODEL_PROVIDERS.qwen.endpoint, /^https:\/\/dashscope\.aliyuncs\.com\//);
+  assert.match(INTERVIEW_MODEL_PROVIDERS.mimo.endpoint, /^https:\/\/api\.xiaomimimo\.com\//);
+  assert.match(INTERVIEW_MODEL_PROVIDERS.doubao.endpoint, /^https:\/\/ark\.cn-beijing\.volces\.com\//);
+  for (const provider of Object.values(INTERVIEW_MODEL_PROVIDERS)) {
+    assert.ok(provider.models.length >= 2);
+    assert.ok(provider.models.some(model => model.id === provider.defaultModel));
+  }
 });
 
 test("模型名称拒绝 URL 和异常字符", () => {
@@ -70,6 +80,28 @@ test("Kimi 使用兼容的完成长度参数", () => {
   });
   assert.equal("max_completion_tokens" in body, true);
   assert.equal("max_tokens" in body, false);
+});
+
+test("MiMo 使用完成长度参数并关闭思考，Qwen与豆包保持OpenAI兼容请求", () => {
+  const mimo = buildProviderRequestBody({
+    provider: "mimo",
+    model: "mimo-v2.5",
+    action: "turn",
+    messages: [{ role: "user", content: "继续" }],
+  });
+  assert.deepEqual(mimo.thinking, { type: "disabled" });
+  assert.equal("max_completion_tokens" in mimo, true);
+
+  for (const provider of ["qwen", "doubao"] as const) {
+    const body = buildProviderRequestBody({
+      provider,
+      model: INTERVIEW_MODEL_PROVIDERS[provider].defaultModel,
+      action: "turn",
+      messages: [{ role: "user", content: "继续" }],
+    });
+    assert.equal("max_tokens" in body, true);
+    assert.equal("thinking" in body, false);
+  }
 });
 
 test("DeepSeek 关闭思考模式并为正式面试启用 JSON 输出", () => {
