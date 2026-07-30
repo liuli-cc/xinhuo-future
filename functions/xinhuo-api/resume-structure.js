@@ -22,8 +22,9 @@ const SECTION_DEFINITIONS = {
     "职业经历", "professional experience", "work experience", "internship experience", "internships",
   ],
   competitions: [
-    "竞赛经历", "比赛经历", "获奖经历", "荣誉奖项", "奖项荣誉", "获奖情况",
+    "竞赛与荣誉经历", "竞赛荣誉经历", "竞赛经历", "比赛经历", "获奖经历", "荣誉奖项", "奖项荣誉", "获奖情况",
     "奖励情况", "证书荣誉", "荣誉证书", "竞赛获奖", "荣誉", "证书",
+    "荣誉&证书", "荣誉与证书",
     "awards and honors", "awards", "honors", "certificates",
   ],
   selfEval: [
@@ -49,6 +50,10 @@ function normalizeResumeText(text) {
     .replace(/\r\n?/g, "\n")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
     .replace(/\u00a0/g, " ")
+    // OCR engines often insert a literal space between every Chinese glyph.
+    // Collapse only Han-to-Han spacing so English words and numbers keep their
+    // original boundaries.
+    .replace(/([\u3400-\u9fff])[ \t]+(?=[\u3400-\u9fff])/g, "$1")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/[ \t]{3,}/g, "  ")
     .replace(/^\s*--\s*\d+\s+of\s+\d+\s*--\s*$/gim, "")
@@ -179,6 +184,21 @@ function extractMajor(text, sections) {
 
   const educationLines = sections.education.split("\n").map(cleanLine).filter(Boolean);
   for (const line of educationLines) {
+    const degree = canonicalDegree(line);
+    if (degree) {
+      const beforeDegree = line
+        .replace(DATE_RANGE_PATTERN, " ")
+        .split(degree)[0]
+        .replace(/^.*?(?:大学|学院)\s*/, "")
+        .trim();
+      if (
+        beforeDegree.length >= 2
+        && beforeDegree.length <= 50
+        && !/(?:大学|学院|博士|硕士|本科|学士|大专|专科|至今)/.test(beforeDegree)
+      ) {
+        return plausibleMajor(beforeDegree);
+      }
+    }
     if (!/(?:大学|学院)/.test(line) || !canonicalDegree(line)) continue;
     const withoutDates = line.replace(DATE_RANGE_PATTERN, " ");
     const parts = withoutDates.split(/\s{2,}|[|｜]/).map(cleanLine).filter(Boolean);
@@ -303,7 +323,7 @@ function sectionOrLabeled(text, sections, key) {
 
 function splitCompetitionAward(value) {
   const normalized = cleanLine(value);
-  const match = /^(.*?)(?:\s+|[：:，,；;|-])((?:国家级|省级|市级|校级|院级)?(?:特等奖|一等奖|二等奖|三等奖|金奖|银奖|铜奖|优秀奖|优胜奖|入围奖|奖学金|优秀学生|优秀干部|荣誉称号|证书).*)$/.exec(normalized);
+  const match = /^(.*?)(?:\s+|[：:，,；;|-])?((?:国家级|省级|市级|校级|院级)?(?:特等奖|一等奖|二等奖|三等奖|金奖|银奖|铜奖|优秀奖|优胜奖|入围奖|奖学金|优秀学生|优秀干部|荣誉称号|证书).*)$/.exec(normalized);
   return match
     ? { name: match[1].trim() || normalized, award: match[2].trim() }
     : { name: normalized, award: "" };

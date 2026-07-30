@@ -93,3 +93,46 @@ AWARDS AND HONORS
   assert.match(resume.competitions[0].name, /中国国际大学生创新大赛/);
   assert.equal(resume.competitions[0].award, "国家级铜奖");
 });
+
+test("兼容 PDF 常见的专业学历同行与竞赛荣誉组合标题", () => {
+  const resume = parseResumeStructure(`
+教育背景
+有价职大学 2021.9-2024.7
+计算机科学与技术 硕士研究生 计算机学院
+
+六、竞赛与荣誉经历
+2024年 全国大学生数学建模竞赛 省级二等奖：负责数据处理与模型搭建
+2023年 校内算法竞赛 校级优秀奖：负责代码实现
+  `);
+
+  assert.equal(resume.education, "硕士研究生");
+  assert.equal(resume.major, "计算机科学与技术");
+  assert.equal(resume.competitions.length, 2);
+  assert.match(resume.competitions[0].name, /数学建模竞赛/);
+});
+
+test("兼容 OCR 在中文字符之间插入空格的结果", () => {
+  const resume = parseResumeStructure(`
+姓 名 ： 李 华
+教 育 背 景
+东 北 大 学
+计 算 机 科 学 与 技 术 本 科
+
+专 业 技 能
+Python、React、数 据 分 析
+
+项 目 经 历
+校 园 招 聘 平 台
+负 责 前 端 开 发 与 接 口 联 调
+
+竞 赛 与 荣 誉 经 历
+全 国 大 学 生 计 算 机 设 计 大 赛 省 级 二 等 奖
+  `);
+
+  assert.equal(resume.name, "李华");
+  assert.equal(resume.education, "本科");
+  assert.equal(resume.major, "计算机科学与技术");
+  assert.deepEqual(resume.skills, ["Python", "React", "数据分析"]);
+  assert.equal(resume.projects.length, 1);
+  assert.equal(resume.competitions.length, 1);
+});

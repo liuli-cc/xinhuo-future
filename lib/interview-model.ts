@@ -3,19 +3,64 @@ export const INTERVIEW_MODEL_PROVIDERS = {
     label: "DeepSeek",
     endpoint: "https://api.deepseek.com/chat/completions",
     defaultModel: "deepseek-v4-flash",
+    models: [
+      { id: "deepseek-v4-flash", label: "V4 Flash · 低延迟" },
+      { id: "deepseek-v4-pro", label: "V4 Pro · 高质量" },
+    ],
     description: "响应快，适合连续追问与中文岗位面试",
   },
   kimi: {
     label: "Kimi",
     endpoint: "https://api.moonshot.cn/v1/chat/completions",
     defaultModel: "kimi-k2.6",
+    models: [
+      { id: "kimi-k2.6", label: "K2.6 · 推荐" },
+      { id: "kimi-k2.5", label: "K2.5 · 稳定" },
+      { id: "kimi-k2-thinking", label: "K2 Thinking · 深度推理" },
+    ],
     description: "长上下文表现稳定，适合项目经历深挖",
   },
   glm: {
     label: "智谱 GLM",
     endpoint: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-    defaultModel: "glm-4.7-flash",
-    description: "大陆访问稳定，轻量模型适合低延迟练习",
+    defaultModel: "glm-5.2",
+    models: [
+      { id: "glm-5.2", label: "GLM-5.2 · 旗舰" },
+      { id: "glm-5.1-flash", label: "GLM-5.1 Flash · 快速" },
+      { id: "glm-4.7-flash", label: "GLM-4.7 Flash · 经济" },
+    ],
+    description: "中文表达自然，适合结构化追问与总结",
+  },
+  qwen: {
+    label: "通义千问",
+    endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    defaultModel: "qwen3.7-plus",
+    models: [
+      { id: "qwen3.7-plus", label: "Qwen3.7 Plus · 推荐" },
+      { id: "qwen3-max", label: "Qwen3 Max · 旗舰" },
+      { id: "qwen3.5-plus", label: "Qwen3.5 Plus · 稳定" },
+    ],
+    description: "阿里云百炼兼容接口，适合通用岗位面试",
+  },
+  mimo: {
+    label: "小米 MiMo",
+    endpoint: "https://api.xiaomimimo.com/v1/chat/completions",
+    defaultModel: "mimo-v2.5",
+    models: [
+      { id: "mimo-v2.5", label: "MiMo V2.5 · 快速" },
+      { id: "mimo-v2.5-pro", label: "MiMo V2.5 Pro · 深度" },
+    ],
+    description: "低延迟中文模型，适合连续对话",
+  },
+  doubao: {
+    label: "豆包",
+    endpoint: "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+    defaultModel: "doubao-seed-2-0-pro-260215",
+    models: [
+      { id: "doubao-seed-2-0-pro-260215", label: "Seed 2.0 Pro · 推荐" },
+      { id: "doubao-seed-1-8-251228", label: "Seed 1.8 · 稳定" },
+    ],
+    description: "火山方舟接口，也可填写控制台中的 Endpoint ID",
   },
 } as const;
 
@@ -231,11 +276,13 @@ export function buildProviderRequestBody(input: {
     model: input.model,
     messages: input.messages,
     stream: false,
-    ...(input.provider === "deepseek" ? {
+    ...(["deepseek", "kimi", "mimo"].includes(input.provider) ? {
       thinking: { type: "disabled" },
-      ...(input.action === "test" ? {} : { response_format: { type: "json_object" } }),
     } : {}),
-    ...(input.provider === "kimi"
+    ...(input.provider === "deepseek" && input.action !== "test"
+      ? { response_format: { type: "json_object" } }
+      : {}),
+    ...(["kimi", "mimo"].includes(input.provider)
       ? { max_completion_tokens: maxOutputTokens }
       : { max_tokens: maxOutputTokens }),
   };

@@ -23,6 +23,22 @@ test("包含语音指标的报告", () => {
   const scored = scoreAnswerV2("测试问题", "完整回答内容，包含情境、任务、行动和结果，并有所量化。", 60, ["JavaScript"], metrics);
   assert.ok(scored.speechMetrics !== null);
   assert.equal(scored.speechMetrics!.wordsPerMinute, 160);
+  const report = generateReportV2([scored]);
+  assert.equal(report.expressionSummary.answersWithVoice, 1);
+});
+
+test("合理思考停顿不扣分，口头语密度过高会影响语言表达", () => {
+  const natural = defaultSpeechMetrics();
+  natural.wordsPerMinute = 160;
+  natural.pauseRatio = 22;
+  natural.thinkingBeforeAnswerMs = 5_000;
+  natural.fillerWordsPerMinute = 1.5;
+  const excessive = { ...natural, thinkingBeforeAnswerMs: 20_000, fillerWordsPerMinute: 10 };
+  const answer = "在项目中我负责接口设计，目标是提升稳定性。我先分析日志并完成优化，最终故障率降低30%。";
+  const naturalScore = scoreAnswerV2("介绍项目", answer, 70, [], natural);
+  const excessiveScore = scoreAnswerV2("介绍项目", answer, 70, [], excessive);
+  assert.ok(naturalScore.dimensions.languageExpression > excessiveScore.dimensions.languageExpression);
+  assert.ok(excessiveScore.riskPoints.some(point => point.includes("口头语")));
 });
 
 test("不同学生数据隔离（userId在服务端）", () => {

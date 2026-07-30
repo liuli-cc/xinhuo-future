@@ -75,9 +75,9 @@ export default function ResumeUploader({ onFileSelected, uploading, progress = 0
               <line x1="16" y1="17" x2="8" y2="17" />
               <polyline points="10 9 9 9 8 9" />
             </svg>
-            <b>上传简历文件</b>
-            <span>支持 PDF、DOCX、TXT 格式，最大 {RESUME_MAX_MB}MB</span>
-            <small>点击选择文件，或将文件拖拽到此处</small>
+            <b>上传或拍摄简历</b>
+            <span>PDF / Word / TXT / Markdown / JPG / PNG，最大 {RESUME_MAX_MB}MB</span>
+            <small>图片与扫描版 PDF 会在当前浏览器内免费 OCR，不上传原图到第三方</small>
           </>
         )}
       </button>

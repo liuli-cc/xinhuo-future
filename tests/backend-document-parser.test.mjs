@@ -25,6 +25,13 @@ test("parses TXT resume content", async () => {
   assert.match(result.text, /人工智能/);
 });
 
+test("parses Markdown resume content as UTF-8 text", async () => {
+  const buffer = Buffer.from("# 王五\\n\\n## 教育背景\\n内蒙古师范大学\\n\\n## 项目经历\\nAI模拟面试平台");
+  const result = await parseResumeDocument(toPayload("resume.md", buffer));
+  assert.equal(result.extension, ".md");
+  assert.match(result.text, /AI模拟面试平台/);
+});
+
 test("parses DOCX main document XML", async () => {
   const zip = new AdmZip();
   zip.addFile("[Content_Types].xml", Buffer.from('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'));

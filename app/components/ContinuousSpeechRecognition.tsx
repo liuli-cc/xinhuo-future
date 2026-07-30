@@ -89,7 +89,7 @@ export default function ContinuousSpeechRecognition({
   turnKey,
   disabled = false,
   maxDurationMs = 90_000,
-  silenceMs = 1_350,
+  silenceMs = 5_000,
   onInterimChange,
   onAudioLevel,
   onStatusChange,
@@ -107,6 +107,7 @@ export default function ContinuousSpeechRecognition({
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const desiredActiveRef = useRef(false);
   const completedRef = useRef(false);
   const restartRecognitionRef = useRef<() => void>(() => {});
@@ -142,9 +143,11 @@ export default function ContinuousSpeechRecognition({
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (maxTimerRef.current) clearTimeout(maxTimerRef.current);
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    if (connectionTimerRef.current) clearTimeout(connectionTimerRef.current);
     silenceTimerRef.current = null;
     maxTimerRef.current = null;
     restartTimerRef.current = null;
+    connectionTimerRef.current = null;
   }, []);
 
   const releaseMeter = useCallback(async () => {
@@ -260,8 +263,13 @@ export default function ContinuousSpeechRecognition({
     recognition.maxAlternatives = 1;
     recognitionRef.current = recognition;
 
-    recognition.onstart = () => updateStatus("listening");
-    recognition.onaudiostart = () => updateStatus("listening");
+    const markListening = () => {
+      if (connectionTimerRef.current) clearTimeout(connectionTimerRef.current);
+      connectionTimerRef.current = null;
+      updateStatus("listening");
+    };
+    recognition.onstart = markListening;
+    recognition.onaudiostart = markListening;
     recognition.onspeechstart = () => {
       if (!speechStartedAtRef.current) speechStartedAtRef.current = Date.now();
       updateStatus("hearing");
@@ -343,6 +351,15 @@ export default function ContinuousSpeechRecognition({
     updateStatus("starting");
     void startMeter();
     startRecognition();
+    connectionTimerRef.current = setTimeout(() => {
+      if (!desiredActiveRef.current || completedRef.current || recognitionRef.current === null) return;
+      desiredActiveRef.current = false;
+      completedRef.current = true;
+      stopRecognition(true);
+      void releaseMeter();
+      updateStatus("error");
+      callbacksRef.current.onError("麦克风连接超过 8 秒未响应，已自动切换为文字回答。你也可以检查 Chrome 麦克风权限后重试。");
+    }, 8_000);
     maxTimerRef.current = setTimeout(() => {
       if (finalTextRef.current || interimTextRef.current) void finishTurn();
       else {
@@ -380,7 +397,7 @@ export default function ContinuousSpeechRecognition({
     : status === "listening"
       ? "请开始回答，停顿后会自动继续"
       : status === "hearing"
-        ? "正在听你回答…"
+        ? "正在听你回答，思考停顿不会打断"
         : status === "finalizing"
           ? "正在整理回答…"
           : status === "unsupported"
@@ -392,10 +409,20 @@ export default function ContinuousSpeechRecognition({
   return (
     <div className={`live-speech-status status-${status}`} aria-live="polite">
       <span className="live-speech-orb" aria-hidden="true" />
-      <div>
+      <div className="live-speech-copy">
         <b>{label}</b>
-        <p>{interim || "识别内容会在这里实时出现，原始录音不会保存。"}</p>
+        <p>{interim || "识别内容会在这里实时出现；允许“嗯、啊”和自然思考，原始录音不会保存。"}</p>
       </div>
+      {(status === "listening" || status === "hearing") && (
+        <button
+          type="button"
+          className="live-answer-finished"
+          disabled={interim.trim().length < 2}
+          onClick={() => void finishTurn()}
+        >
+          我说完了
+        </button>
+      )}
     </div>
   );
 }

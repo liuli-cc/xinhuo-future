@@ -19,8 +19,17 @@ import { defaultInterviewPlan, type InterviewPlan } from "../../lib/interview-pl
 import type { SpeechMetrics } from "../../lib/speech-analysis";
 import { generateReportV2, type ScoredAnswer, type InterviewReportV2 } from "../../lib/scoring-v2";
 import { buildInterviewReportMarkdown, interviewReportFileName } from "../../lib/interview-report-export";
+import {
+  downloadInterviewReportPdf,
+  downloadInterviewReportWord,
+} from "../../lib/interview-report-download";
 import type { VoiceCaptureStats } from "../../lib/wav-audio";
 import { createResumeUploadId, splitResumeBase64 } from "../../lib/resume-upload";
+import {
+  canUseLocalResumeOcr,
+  extractResumeTextWithOcr,
+  isResumeImage,
+} from "../../lib/client-resume-ocr";
 import { useEffect, useRef, useState } from "react";
 
 /* ── 类型 ── */
@@ -37,6 +46,9 @@ const providerConsoles: Record<InterviewModelProvider, string> = {
   deepseek: "https://platform.deepseek.com/",
   kimi: "https://platform.kimi.com/",
   glm: "https://bigmodel.cn/",
+  qwen: "https://bailian.console.aliyun.com/",
+  mimo: "https://mimo.mi.com/",
+  doubao: "https://console.volcengine.com/ark/",
 };
 
 export default function InterviewPage() {
@@ -67,6 +79,7 @@ export default function InterviewPage() {
   const [provider, setProvider] = useState<InterviewModelProvider>("deepseek");
   const [planMode, setPlanMode] = useState<PlanMode>("local");
   const [modelName, setModelName] = useState<string>(INTERVIEW_MODEL_PROVIDERS.deepseek.defaultModel);
+  const [useCustomModel, setUseCustomModel] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [connection, setConnection] = useState<Connection>({ status: "idle", message: "尚未测试连接" });
@@ -104,6 +117,7 @@ export default function InterviewPage() {
 
   /* ── 报告 ── */
   const [report, setReport] = useState<InterviewReportV2 | null>(null);
+  const [reportExporting, setReportExporting] = useState<"pdf" | "word" | null>(null);
   const [history, setHistory] = useState<History[]>([]);
 
   /* ── Toast ── */
@@ -172,6 +186,28 @@ export default function InterviewPage() {
     setResumeError("");
     setInterviewerState("thinking");
     try {
+      const parseOcrText = async () => {
+        const text = await extractResumeTextWithOcr(file, progress => {
+          setResumeUploadProgress(progress.progress);
+        });
+        const response = await apiFetch("/api/interview/resume/parse-text", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, source: `本地OCR:${file.name}` }),
+        });
+        const body: { error?: string; resume?: ResumeStructured } = await response.json().catch(() => ({}));
+        if (!response.ok || !body.resume) {
+          throw new Error(body.error || "OCR文字结构化失败，请确认简历内容清晰完整");
+        }
+        return body.resume;
+      };
+
+      if (isResumeImage(file.name)) {
+        setResumeParsed(await parseOcrText());
+        showToast("图片 OCR 识别成功，请确认简历字段");
+        return;
+      }
+
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
@@ -204,7 +240,16 @@ export default function InterviewPage() {
         body: JSON.stringify({ fileName: file.name, fileSize: file.size, mimeType: file.type, uploadId, total: chunks.length }),
       });
       const b: { error?: string; resume?: ResumeStructured } = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(b.error || `服务器返回错误(${r.status})，请确认简历格式正确`);
+      if (!r.ok) {
+        const serverMessage = b.error || `服务器返回错误(${r.status})，请确认简历格式正确`;
+        const shouldTryOcr = canUseLocalResumeOcr(file.name)
+          && /OCR|扫描|没有提取|文字提取失败|文字过少/.test(serverMessage);
+        if (!shouldTryOcr) throw new Error(serverMessage);
+        setResumeUploadProgress(1);
+        setResumeParsed(await parseOcrText());
+        showToast("扫描版 PDF 已通过本地 OCR 识别");
+        return;
+      }
       if (!b.resume) throw new Error("服务器未返回有效的简历内容");
       setResumeParsed(b.resume);
       showToast("简历解析成功，请确认识别结果");
@@ -274,7 +319,7 @@ export default function InterviewPage() {
   /* ── 开始面试 ── */
   const startInterview = () => {
     const questions = interviewPlan?.questions ?? [];
-    const openingQuestion = questions[0]?.label ?? "你好，我是今天的面试官林老师。先不用紧张，请你结合正在申请的方向，做一个两分钟左右的自我介绍。";
+    const openingQuestion = questions[0]?.label ?? "你好，我是今天的面试官liuli老师。先不用紧张，请你结合正在申请的方向，做一个两分钟左右的自我介绍。";
     if (questions.length === 0) {
       const plan = defaultInterviewPlan(resumeParsed, jobParsed);
       setInterviewPlan(plan);
@@ -312,6 +357,7 @@ export default function InterviewPage() {
     setLiveTranscript("");
     setTranscribedText("");
     setTextAnswer("");
+    setAsrError("");
     setSeconds(0);
     setLiveTurnKey(value => value + 1);
     setLiveListening(true);
@@ -440,6 +486,37 @@ export default function InterviewPage() {
     link.remove();
     URL.revokeObjectURL(url);
     showToast("面试报告已下载");
+  };
+
+  const reportExportContext = () => ({
+    targetRole: jobParsed?.title ?? "通用能力",
+    durationSeconds: callSeconds,
+  });
+
+  const exportReportWord = async () => {
+    if (!report || reportExporting) return;
+    setReportExporting("word");
+    try {
+      await downloadInterviewReportWord(report, reportExportContext());
+      showToast("Word 报告已生成");
+    } catch (error) {
+      showToast(error instanceof Error ? `Word 导出失败：${error.message}` : "Word 导出失败");
+    } finally {
+      setReportExporting(null);
+    }
+  };
+
+  const exportReportPdf = async () => {
+    if (!report || reportExporting) return;
+    setReportExporting("pdf");
+    try {
+      await downloadInterviewReportPdf(report, reportExportContext());
+      showToast("PDF 报告已生成");
+    } catch (error) {
+      showToast(error instanceof Error ? `PDF 导出失败：${error.message}` : "PDF 导出失败");
+    } finally {
+      setReportExporting(null);
+    }
   };
 
   /* ── 提交回答 ── */
@@ -653,13 +730,13 @@ export default function InterviewPage() {
      ═══════════════════════════════════════════ */
   if (pageMode === "setup") {
     return (
-      <PortalFrame active="interview" eyebrow="AI VOICE INTERVIEW" title="AI 语音模拟面试" subtitle="上传简历、选择岗位，与青年导师进行约 15 分钟的连续实时交流。">
-        <div className="voice-interview-setup">
+      <PortalFrame active="interview" eyebrow="INTERVIEW STUDIO" title="和 liuli 老师，完成一场真实的模拟面试" subtitle="多格式简历识别 · 连续语音追问 · 约 15 分钟 · 结构化复盘">
+        <div className="voice-interview-setup interview-v3">
           {/* 左侧：进度步骤 */}
           <aside className="setup-steps-panel">
             <div className={`step-item ${setupStep === "resume" ? "active" : resumeParsed ? "done" : ""}`}>
               <span className="step-num">{resumeParsed ? "✓" : "1"}</span>
-              <div><b>上传简历</b><small>PDF/DOCX/TXT，最大3MB，自动脱敏</small></div>
+              <div><b>上传简历</b><small>文档、Markdown、图片与扫描件，最大3MB</small></div>
             </div>
             <div className={`step-item ${setupStep === "job" ? "active" : jobParsed ? "done" : ""}`}>
               <span className="step-num">{jobParsed ? "✓" : "2"}</span>
@@ -671,7 +748,7 @@ export default function InterviewPage() {
             </div>
             <div className={`step-item ${setupStep === "ready" ? "active" : ""}`}>
               <span className="step-num">4</span>
-              <div><b>开始实时通话</b><small>林老师自然追问，Chrome 自动转写回答</small></div>
+              <div><b>开始实时通话</b><small>liuli老师自然追问，Chrome 自动转写回答</small></div>
             </div>
           </aside>
 
@@ -781,19 +858,42 @@ export default function InterviewPage() {
                   <div className="no-job-note" style={{ marginBottom: 16 }}>
                     <p>不需要安装软件、不需要 API Key。系统会根据简历和岗位生成连贯提纲，使用 Chrome 免费语音识别与浏览器朗读；回答文字和评分仍可正常保存。</p>
                   </div>
-                ) : <div className="model-connect-panel" style={{ margin: "0 0 16px", padding: 14, background: "var(--bg-alt)", border: "1px solid var(--line)", borderRadius: "var(--radius)" }}>
-                  <div className="model-provider-tabs" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 7, marginBottom: 12 }}>
+                ) : <div className="model-connect-panel">
+                  <div className="model-provider-tabs">
                     {(Object.keys(INTERVIEW_MODEL_PROVIDERS) as InterviewModelProvider[]).map(p => (
-                      <button key={p} className={provider === p ? "active" : ""} onClick={() => { setProvider(p); setModelName(INTERVIEW_MODEL_PROVIDERS[p].defaultModel); setApiKey(""); setConnection({ status: "idle", message: "请输入 API Key" }); }}
-                        style={{ padding: 10, border: `1px solid ${provider === p ? "var(--accent)" : "transparent"}`, borderRadius: 7, background: provider === p ? "var(--accent-soft)" : "var(--surface)", color: provider === p ? "var(--ink)" : "var(--ink-dim)", textAlign: "left", display: "grid", gap: 4 }}>
-                        <b style={{ fontSize: 10 }}>{INTERVIEW_MODEL_PROVIDERS[p].label}</b>
-                        <small style={{ color: "var(--muted)", fontSize: 8 }}>{INTERVIEW_MODEL_PROVIDERS[p].description}</small>
+                      <button key={p} className={provider === p ? "active" : ""} onClick={() => { setProvider(p); setModelName(INTERVIEW_MODEL_PROVIDERS[p].defaultModel); setUseCustomModel(false); setApiKey(""); setConnection({ status: "idle", message: "请输入 API Key" }); }}>
+                        <b>{INTERVIEW_MODEL_PROVIDERS[p].label}</b>
+                        <small>{INTERVIEW_MODEL_PROVIDERS[p].description}</small>
                       </button>
                     ))}
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0, .85fr) minmax(0, 1.15fr)", gap: 8, marginBottom: 12 }}>
-                    <label style={{ display: "grid", gap: 5 }}><span style={{ fontSize: 8, color: "var(--muted)" }}>模型名称</span><input value={modelName} onChange={e => setModelName(e.target.value)} style={{ padding: "10px 11px", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 7, color: "var(--ink)", fontSize: 10, outline: "none" }} /></label>
-                    <label style={{ display: "grid", gap: 5 }}><span style={{ fontSize: 8, color: "var(--muted)" }}>API Key</span><input type="password" value={apiKey} onChange={e => { setApiKey(e.target.value); if (connection.status !== "idle") setConnection({ status: "idle", message: "请重新测试连接" }); }} placeholder="仅保留在当前页面内存" style={{ padding: "10px 11px", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 7, color: "var(--ink)", fontSize: 10, outline: "none" }} /></label>
+                  <div className="model-credentials">
+                    <label>
+                      <span>模型</span>
+                      {!useCustomModel ? (
+                        <select
+                          value={modelName}
+                          onChange={event => {
+                            if (event.target.value === "__custom__") {
+                              setUseCustomModel(true);
+                              setModelName("");
+                            } else {
+                              setModelName(event.target.value);
+                            }
+                            setConnection({ status: "idle", message: "请测试连接" });
+                          }}
+                        >
+                          {providerInfo.models.map(model => <option value={model.id} key={model.id}>{model.label}</option>)}
+                          <option value="__custom__">自定义模型 / Endpoint ID…</option>
+                        </select>
+                      ) : (
+                        <div className="custom-model-row">
+                          <input value={modelName} onChange={event => setModelName(event.target.value)} placeholder={provider === "doubao" ? "输入模型名或 ep- 开头的 Endpoint ID" : "输入模型名称"} />
+                          <button type="button" onClick={() => { setUseCustomModel(false); setModelName(providerInfo.defaultModel); }}>使用预设</button>
+                        </div>
+                      )}
+                    </label>
+                    <label><span>API Key</span><input type="password" value={apiKey} onChange={e => { setApiKey(e.target.value); if (connection.status !== "idle") setConnection({ status: "idle", message: "请重新测试连接" }); }} placeholder="仅保留在当前页面内存" /></label>
                   </div>
                   <label style={{ display: "grid", gridTemplateColumns: "16px 1fr", gap: 8, marginBottom: 12 }}>
                     <input type="checkbox" checked={privacyAccepted} onChange={e => { setPrivacyAccepted(e.target.checked); if (!e.target.checked) setConnection({ status: "idle", message: "请确认数据传输说明" }); }} />
@@ -871,17 +971,17 @@ export default function InterviewPage() {
     const statusCopy = callPaused
       ? "通话已暂停"
       : interviewerState === "speaking"
-        ? "林老师正在提问"
+        ? "liuli老师正在提问"
         : interviewerState === "listening"
           ? "轮到你回答"
           : interviewerState === "thinking"
-            ? "林老师正在整理追问"
+            ? "liuli老师正在整理追问"
             : interviewerState === "scoring"
               ? "正在整理反馈"
               : "实时面试进行中";
     return (
       <PortalFrame active="interview" eyebrow={`${jobParsed?.title ?? "通用能力"} INTERVIEW`}
-        title="与林老师的实时模拟面试"
+        title="与liuli老师的实时模拟面试"
         subtitle="约 15 分钟连续对话 · Chrome 免费实时识别 · 原始录音不保存"
         actions={(
           <div className="live-call-header-actions">
@@ -890,7 +990,7 @@ export default function InterviewPage() {
           </div>
         )}
       >
-        <div className="live-interview-stage">
+        <div className="live-interview-stage interview-v3">
           <aside className="live-mentor-panel portal-card">
             <div className="live-call-badge">
               <span className={callPaused ? "paused" : ""} />
@@ -934,12 +1034,12 @@ export default function InterviewPage() {
               {conversationLog.length === 0 && (
                 <div className="live-call-empty">
                   <span>通话即将开始</span>
-                  <p>林老师会先介绍本次面试，然后自然地引导你完成后续交流。</p>
+                  <p>liuli老师会先介绍本次面试，然后自然地引导你完成后续交流。</p>
                 </div>
               )}
               {conversationLog.slice(-7).map((entry, logIndex) => (
                 <article className={`live-transcript-entry ${entry.speaker}`} key={`${entry.speaker}-${logIndex}-${entry.text.slice(0, 12)}`}>
-                  <span>{entry.speaker === "interviewer" ? "林老师" : "我"}</span>
+                  <span>{entry.speaker === "interviewer" ? "liuli老师" : "我"}</span>
                   <p>{entry.text}</p>
                 </article>
               ))}
@@ -952,7 +1052,7 @@ export default function InterviewPage() {
               {saving && (
                 <div className="live-thinking-row">
                   <span /><span /><span />
-                  林老师正在根据你的回答继续交流
+                  liuli老师正在根据你的回答继续交流
                 </div>
               )}
             </div>
@@ -963,6 +1063,7 @@ export default function InterviewPage() {
                 turnKey={liveTurnKey}
                 disabled={saving || interviewerState === "speaking"}
                 maxDurationMs={90_000}
+                silenceMs={5_000}
                 onInterimChange={setLiveTranscript}
                 onAudioLevel={setAudioLevel}
                 onStatusChange={setLiveSpeechStatus}
@@ -973,7 +1074,7 @@ export default function InterviewPage() {
               {callPaused && (
                 <div className="live-paused-note">
                   <b>通话已暂停</b>
-                  <span>点击页面右上角“继续通话”，林老师会从当前问题继续。</span>
+                  <span>点击页面右上角“继续通话”，liuli老师会从当前问题继续。</span>
                 </div>
               )}
 
@@ -1021,7 +1122,7 @@ export default function InterviewPage() {
               )}
 
               <div className="live-console-footnote">
-                <span>{liveSpeechStatus === "hearing" ? "正在接收你的回答" : "回答结束后约 1.3 秒自动进入下一轮"}</span>
+                <span>{liveSpeechStatus === "hearing" ? "正在接收你的回答" : "连续静默约 5 秒才会提交，也可点击“我说完了”"}</span>
                 <span>建议佩戴耳机，降低扬声器回声</span>
               </div>
             </div>
@@ -1041,17 +1142,36 @@ export default function InterviewPage() {
         subtitle={`${jobParsed?.title ?? "通用能力"} · ${report.overallScore} 分`}
         actions={(
           <div className="report-actions">
-            <button className="ghost-action" onClick={downloadInterviewReport}>下载报告</button>
-            <button className="ghost-action" onClick={() => window.print()}>打印 / 保存 PDF</button>
+            <button className="ghost-action" onClick={downloadInterviewReport}>Markdown</button>
+            <button className="ghost-action" onClick={() => void exportReportWord()} disabled={Boolean(reportExporting)}>
+              {reportExporting === "word" ? "生成 Word…" : "导出 Word"}
+            </button>
+            <button className="ghost-action" onClick={() => void exportReportPdf()} disabled={Boolean(reportExporting)}>
+              {reportExporting === "pdf" ? "生成 PDF…" : "导出 PDF"}
+            </button>
             <button className="primary-action" onClick={resetAll}>开始新面试</button>
           </div>
         )}
       >
-        <div className="interview-report-page">
+        <div className="interview-report-page" id="interview-report-document">
           <section className={`report-save-state ${pendingReport ? "pending" : "saved"}`}>
             <b>{pendingReport ? "报告已在本机生成，尚未保存到云端" : "报告已生成并保存到云端"}</b>
             <span>{pendingReport ? "你仍可下载或打印；网络恢复后点击“重试云端保存”。" : `生成时间：${new Date(report.calculatedAt).toLocaleString("zh-CN", { hour12: false })}`}</span>
             {pendingReport && <button className="ghost-action" onClick={retrySave} disabled={saving}>{saving ? "保存中…" : "重试云端保存"}</button>}
+          </section>
+
+          <section className="report-expression portal-card">
+            <div>
+              <span>口语表达画像</span>
+              <h2>思考停顿与口头语已纳入语言表达评分</h2>
+              <p>{report.expressionSummary.observation}</p>
+            </div>
+            <dl>
+              <div><dt>平均语速</dt><dd>{report.expressionSummary.averageWordsPerMinute}<small>字/分</small></dd></div>
+              <div><dt>平均停顿</dt><dd>{report.expressionSummary.averagePauseRatio}<small>%</small></dd></div>
+              <div><dt>开口前思考</dt><dd>{report.expressionSummary.averageThinkingSeconds}<small>秒</small></dd></div>
+              <div><dt>口头语密度</dt><dd>{report.expressionSummary.fillerWordsPerMinute}<small>次/分</small></dd></div>
+            </dl>
           </section>
 
           {/* 总分 */}
@@ -1066,7 +1186,7 @@ export default function InterviewPage() {
             </div>
           </div>
           <div>
-            <span style={{ fontSize: 9, color: "var(--green)", background: "var(--green-soft)", padding: "4px 8px", borderRadius: 5 }}>XH-SCORE-V2 规则引擎</span>
+            <span style={{ fontSize: 9, color: "var(--green)", background: "var(--green-soft)", padding: "4px 8px", borderRadius: 5 }}>{report.engineVersion} 规则引擎</span>
             <h2>{report.overallScore >= 80 ? "表现优秀，继续保持" : report.overallScore >= 60 ? "基础扎实，持续改进" : "建议加强练习"}</h2>
             <p style={{ fontSize: 10, color: "var(--ink-dim)" }}>共 {report.scoredAnswers.length} 道回答。{report.trendNote}</p>
           </div>
@@ -1132,7 +1252,8 @@ export default function InterviewPage() {
                   <div className="speech-detail" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: "8px 12px", background: "var(--bg-alt)", borderRadius: 6, marginBottom: 8, fontSize: 9 }}>
                     <span>语速：{item.speechMetrics.wordsPerMinute} 字/分</span>
                     <span>停顿：{item.speechMetrics.pauseRatio}%</span>
-                    <span>口头语：{Object.values(item.speechMetrics.fillerWordCounts).reduce((a,b)=>a+b,0)} 次</span>
+                    <span>思考：{(item.speechMetrics.thinkingBeforeAnswerMs / 1000).toFixed(1)} 秒</span>
+                    <span>口头语：{item.speechMetrics.fillerWordsPerMinute} 次/分</span>
                     <span>STAR：{item.speechMetrics.starCompleteness}/4</span>
                   </div>
                 )}
