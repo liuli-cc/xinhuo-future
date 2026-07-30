@@ -17,7 +17,8 @@ import type { ResumeStructured } from "../../lib/resume-parser";
 import type { JobStructured } from "../../lib/job-parser";
 import { defaultInterviewPlan, type InterviewPlan } from "../../lib/interview-plan";
 import type { SpeechMetrics } from "../../lib/speech-analysis";
-import type { ScoredAnswer, InterviewReportV2 } from "../../lib/scoring-v2";
+import { generateReportV2, type ScoredAnswer, type InterviewReportV2 } from "../../lib/scoring-v2";
+import { buildInterviewReportMarkdown, interviewReportFileName } from "../../lib/interview-report-export";
 import type { VoiceCaptureStats } from "../../lib/wav-audio";
 import { createResumeUploadId, splitResumeBase64 } from "../../lib/resume-upload";
 import { useEffect, useRef, useState } from "react";
@@ -354,6 +355,93 @@ export default function InterviewPage() {
     window.speechSynthesis.speak(u);
   };
 
+  const completeInterview = async (finalAnswers: ScoredAnswer[], announce = true) => {
+    if (finalAnswers.length === 0) {
+      showToast("至少完成一轮回答后才能生成面试报告");
+      return;
+    }
+
+    setLiveListening(false);
+    setCallPaused(true);
+    callPausedRef.current = true;
+    setSaving(true);
+    setInterviewerState("scoring");
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    if (announce) {
+      fallbackTTS("好的，谢谢你的回答。今天的交流就到这里，我正在为你整理一份具体的面试反馈。");
+    }
+
+    const rpt = generateReportV2(finalAnswers);
+    setReport(rpt);
+    setPendingReport(null);
+    setPageMode("report");
+    setApiKey("");
+    setConnection({ status: "idle", message: "面试结束，API Key 已清除" });
+
+    try {
+      const saveR = await apiFetch("/api/interview", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetRole: jobParsed?.title ?? "通用能力",
+          difficulty: jobParsed?.difficulty === "advanced" ? "进阶" : jobParsed?.difficulty === "entry" ? "入门" : "标准",
+          answers: finalAnswers.map(answer => ({
+            question: answer.question,
+            answer: answer.answer,
+            seconds: answer.seconds,
+            speechMetrics: answer.speechMetrics,
+          })),
+          modelProvider: provider,
+          modelName,
+          applicationId: jobSource === "saved" ? applicationId : undefined,
+          reportV2: rpt,
+        }),
+      });
+      const saveB = await saveR.json().catch(() => ({}));
+      if (!saveR.ok) throw new Error(saveB.error || "云端保存失败");
+      setReport(saveB.report ?? rpt);
+      setHistory(previous => [{
+        id: saveB.id ?? crypto.randomUUID(),
+        targetRole: jobParsed?.title ?? "通用能力",
+        overallScore: rpt.overallScore,
+        createdAt: Date.now(),
+      }, ...previous].slice(0, 12));
+      showToast("面试报告已生成并保存");
+    } catch (error) {
+      setPendingReport(finalAnswers);
+      showToast(`报告已在本机生成；${error instanceof Error ? error.message : "云端保存失败"}，可稍后重试`, 6000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const finishCurrentInterview = () => {
+    if (saving) return;
+    if (answers.length === 0) {
+      showToast("至少完成一轮回答后才能结束并生成报告");
+      return;
+    }
+    if (!confirm(`确定结束本次面试并根据已完成的 ${answers.length} 轮回答生成报告吗？`)) return;
+    void completeInterview(answers);
+  };
+
+  const downloadInterviewReport = () => {
+    if (!report) return;
+    const targetRole = jobParsed?.title ?? "通用能力";
+    const markdown = buildInterviewReportMarkdown(report, {
+      targetRole,
+      durationSeconds: callSeconds,
+    });
+    const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = interviewReportFileName(targetRole, report.calculatedAt);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showToast("面试报告已下载");
+  };
+
   /* ── 提交回答 ── */
   const submitAnswer = async (
     answerOverride?: string,
@@ -455,40 +543,7 @@ export default function InterviewPage() {
       setInterviewerState("speaking");
       setTimeout(() => speakQuestion(nextQ), 300);
     } else {
-      // 生成报告
-      setInterviewerState("scoring");
-      fallbackTTS("好的，谢谢你的回答。今天的交流就到这里，我正在为你整理一份具体的面试反馈。");
-      try {
-        const { generateReportV2 } = await import("../../lib/scoring-v2");
-        const rpt = generateReportV2(newAnswers);
-        const saveR = await apiFetch("/api/interview", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            targetRole: jobParsed?.title ?? "通用能力",
-            difficulty: jobParsed?.difficulty === "advanced" ? "进阶" : jobParsed?.difficulty === "entry" ? "入门" : "标准",
-            answers: newAnswers.map(a => ({ question: a.question, answer: a.answer, seconds: a.seconds, speechMetrics: a.speechMetrics })),
-            modelProvider: provider,
-            modelName,
-            applicationId: jobSource === "saved" ? applicationId : undefined,
-            reportV2: rpt,
-          }),
-        });
-        if (saveR.ok) {
-          const saveB = await saveR.json();
-          setReport(saveB.report ?? rpt);
-          setHistory(prev => [{ id: saveB.id ?? crypto.randomUUID(), targetRole: jobParsed?.title ?? "通用能力", overallScore: rpt.overallScore, createdAt: Date.now() }, ...prev].slice(0, 12));
-        } else {
-          setReport(rpt);
-        }
-        setPageMode("report");
-        setApiKey("");
-        setConnection({ status: "idle", message: "面试结束，API Key 已清除" });
-      } catch (e) {
-        setPendingReport(newAnswers);
-        showToast(e instanceof Error ? e.message : "报告保存失败");
-      } finally {
-        setSaving(false);
-      }
+      await completeInterview(newAnswers);
     }
   };
 
@@ -535,7 +590,6 @@ export default function InterviewPage() {
     if (!pendingReport) return;
     setSaving(true);
     try {
-      const { generateReportV2 } = await import("../../lib/scoring-v2");
       const rpt = generateReportV2(pendingReport);
       const r = await apiFetch("/api/interview", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -551,6 +605,13 @@ export default function InterviewPage() {
         setReport(b.report ?? rpt);
         setPageMode("report");
         setPendingReport(null);
+        setHistory(previous => [{
+          id: b.id ?? crypto.randomUUID(),
+          targetRole: jobParsed?.title ?? "通用能力",
+          overallScore: rpt.overallScore,
+          createdAt: Date.now(),
+        }, ...previous].slice(0, 12));
+        showToast("报告已重新保存到云端");
       } else {
         throw new Error((await r.json()).error);
       }
@@ -825,7 +886,7 @@ export default function InterviewPage() {
         actions={(
           <div className="live-call-header-actions">
             <button className="ghost-action" onClick={toggleCallPause}>{callPaused ? "继续通话" : "暂停"}</button>
-            <button className="ghost-action danger" onClick={() => { if (confirm("确定结束本次面试吗？当前未完成的回答不会生成报告。")) resetAll(); }}>结束面试</button>
+            <button className="ghost-action danger" onClick={finishCurrentInterview} disabled={saving}>结束并生成报告</button>
           </div>
         )}
       >
@@ -978,10 +1039,23 @@ export default function InterviewPage() {
     return (
       <PortalFrame active="interview" eyebrow="INTERVIEW REPORT" title="本次面试报告"
         subtitle={`${jobParsed?.title ?? "通用能力"} · ${report.overallScore} 分`}
-        actions={<button className="primary-action" onClick={resetAll}>开始新面试</button>}
+        actions={(
+          <div className="report-actions">
+            <button className="ghost-action" onClick={downloadInterviewReport}>下载报告</button>
+            <button className="ghost-action" onClick={() => window.print()}>打印 / 保存 PDF</button>
+            <button className="primary-action" onClick={resetAll}>开始新面试</button>
+          </div>
+        )}
       >
-        {/* 总分 */}
-        <section className="report-hero-v2 portal-card">
+        <div className="interview-report-page">
+          <section className={`report-save-state ${pendingReport ? "pending" : "saved"}`}>
+            <b>{pendingReport ? "报告已在本机生成，尚未保存到云端" : "报告已生成并保存到云端"}</b>
+            <span>{pendingReport ? "你仍可下载或打印；网络恢复后点击“重试云端保存”。" : `生成时间：${new Date(report.calculatedAt).toLocaleString("zh-CN", { hour12: false })}`}</span>
+            {pendingReport && <button className="ghost-action" onClick={retrySave} disabled={saving}>{saving ? "保存中…" : "重试云端保存"}</button>}
+          </section>
+
+          {/* 总分 */}
+          <section className="report-hero-v2 portal-card">
           <div className="report-score-ring" style={{
             background: `conic-gradient(var(--accent) ${report.overallScore * 3.6}deg, var(--bg-alt) 0deg)`,
             width: 120, height: 120, borderRadius: "50%", display: "grid", placeItems: "center",
@@ -996,10 +1070,10 @@ export default function InterviewPage() {
             <h2>{report.overallScore >= 80 ? "表现优秀，继续保持" : report.overallScore >= 60 ? "基础扎实，持续改进" : "建议加强练习"}</h2>
             <p style={{ fontSize: 10, color: "var(--ink-dim)" }}>共 {report.scoredAnswers.length} 道回答。{report.trendNote}</p>
           </div>
-        </section>
+          </section>
 
-        {/* 五维得分 */}
-        <section className="report-dimensions">
+          {/* 五维得分 */}
+          <section className="report-dimensions">
           {([
             { key: "content", label: "经历与内容质量", max: 30 },
             { key: "roleMatch", label: "岗位匹配度", max: 20 },
@@ -1017,10 +1091,10 @@ export default function InterviewPage() {
               </div>
             </article>
           ))}
-        </section>
+          </section>
 
-        {/* 雷达图占位 + 优劣势 */}
-        <section className="report-insights" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+          {/* 优劣势 */}
+          <section className="report-insights" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
           <div className="portal-card" style={{ padding: 16 }}>
             <h3 style={{ fontSize: 11, margin: "0 0 8px" }}>回答亮点</h3>
             <ul style={{ fontSize: 10, color: "var(--ink-dim)", padding: "0 0 0 16px", margin: 0 }}>
@@ -1033,13 +1107,20 @@ export default function InterviewPage() {
               {report.improvements.map((s, i) => <li key={i} style={{ marginBottom: 4 }}>{s}</li>)}
             </ul>
           </div>
-        </section>
+          </section>
 
-        {/* 逐题回顾 */}
-        <section className="portal-card" style={{ marginTop: 12, padding: 24 }}>
+          <section className="portal-card report-action-plan" style={{ marginTop: 12, padding: 20 }}>
+            <div className="card-heading"><div><span>NEXT STEP</span><h2>下一步行动计划</h2></div></div>
+            <ol>
+              {(report.actionPlan ?? []).map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}
+            </ol>
+          </section>
+
+          {/* 逐题回顾 */}
+          <section className="portal-card report-question-review" style={{ marginTop: 12, padding: 24 }}>
           <div className="card-heading"><div><span>DETAIL</span><h2>逐题证据与指标</h2></div></div>
           {report.scoredAnswers.map((item, idx) => (
-            <details key={idx} style={{ borderTop: "1px solid var(--line)", padding: "10px 0" }} open={idx === 0}>
+            <details key={idx} style={{ borderTop: "1px solid var(--line)", padding: "10px 0" }} open>
               <summary style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 11 }}>
                 <span style={{ width: 24, height: 24, borderRadius: 6, background: "var(--accent-soft)", color: "var(--accent)", display: "grid", placeItems: "center", fontSize: 9 }}>{String(idx + 1).padStart(2, "0")}</span>
                 <b style={{ flex: 1 }}>{item.question}</b>
@@ -1068,8 +1149,10 @@ export default function InterviewPage() {
               </div>
             </details>
           ))}
-        </section>
+          </section>
 
+          <p className="report-disclaimer">本报告用于模拟练习反馈，不代表真实招聘结果。外部 AI 只负责提问和提取证据，最终分数由 XH-SCORE 规则引擎计算。</p>
+        </div>
         {toast && <div className="portal-toast" style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "var(--surface-elevated)", border: "1px solid var(--line)", borderRadius: "var(--radius)", padding: "12px 20px", fontSize: 11, zIndex: 100 }}>{toast}</div>}
       </PortalFrame>
     );

@@ -41,6 +41,7 @@ export type InterviewReportV2 = {
   scoredAnswers: ScoredAnswer[];
   strengths: string[];
   improvements: string[];
+  actionPlan: string[];
   trendNote: string;
   calculatedAt: string;
 };
@@ -120,7 +121,7 @@ export function scoreAnswerV2(
   languageExpression = clamp(languageExpression);
 
   const totalScore = clamp(
-    content * 0.30 + roleMatch * 0.20 + professionalDepth * 0.20 + logicStructure * 0.15 + languageExpression * 0.15,
+    content + roleMatch + professionalDepth + logicStructure + languageExpression,
   );
 
   const highlight = (() => {
@@ -169,12 +170,13 @@ export function scoreAnswerV2(
 export function generateReportV2(scoredAnswers: ScoredAnswer[]): InterviewReportV2 {
   if (scoredAnswers.length === 0) {
     return {
-      engineVersion: "XH-SCORE-V2.0",
+      engineVersion: "XH-SCORE-V2.1",
       overallScore: 0,
       dimensions: { content: 0, roleMatch: 0, professionalDepth: 0, logicStructure: 0, languageExpression: 0 },
       scoredAnswers: [],
       strengths: [],
       improvements: [],
+      actionPlan: [],
       trendNote: "",
       calculatedAt: new Date().toISOString(),
     };
@@ -192,11 +194,11 @@ export function generateReportV2(scoredAnswers: ScoredAnswer[]): InterviewReport
   };
 
   const overallScore = clamp(
-    dimensions.content * 0.30
-    + dimensions.roleMatch * 0.20
-    + dimensions.professionalDepth * 0.20
-    + dimensions.logicStructure * 0.15
-    + dimensions.languageExpression * 0.15,
+    dimensions.content
+    + dimensions.roleMatch
+    + dimensions.professionalDepth
+    + dimensions.logicStructure
+    + dimensions.languageExpression,
   );
 
   const strengths: string[] = [];
@@ -210,6 +212,33 @@ export function generateReportV2(scoredAnswers: ScoredAnswer[]): InterviewReport
   if (dimensions.languageExpression >= 12) strengths.push("语言表达流畅，口头语少");
   else improvements.push("减少口头语和重复，提升表达流畅度");
 
+  const dimensionPlans = [
+    {
+      score: dimensions.content / 30,
+      text: "选择一个真实项目，用“背景-任务-行动-结果”补写细节，并至少加入一项量化结果。",
+    },
+    {
+      score: dimensions.roleMatch / 20,
+      text: "对照岗位要求整理三项核心能力，每项准备一段与简历经历对应的回答。",
+    },
+    {
+      score: dimensions.professionalDepth / 20,
+      text: "为项目经历补充方案选择、权衡依据、验证指标和复盘结论，准备追问答案。",
+    },
+    {
+      score: dimensions.logicStructure / 15,
+      text: "使用 STAR 框架重写本次最低分回答，并控制在 90 秒内完整表达。",
+    },
+    {
+      score: dimensions.languageExpression / 15,
+      text: "进行两轮 90 秒录音复述，减少口头语和长停顿，保持稳定语速。",
+    },
+  ];
+  const actionPlan = dimensionPlans
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 3)
+    .map(item => item.text);
+
   const trendNote = scoredAnswers.length >= 2
     ? (scoredAnswers[scoredAnswers.length - 1].score >= scoredAnswers[0].score
       ? "整体表现呈上升趋势"
@@ -217,12 +246,13 @@ export function generateReportV2(scoredAnswers: ScoredAnswer[]): InterviewReport
     : "";
 
   return {
-    engineVersion: "XH-SCORE-V2.0",
+    engineVersion: "XH-SCORE-V2.1",
     overallScore,
     dimensions,
     scoredAnswers,
     strengths,
     improvements,
+    actionPlan,
     trendNote,
     calculatedAt: new Date().toISOString(),
   };

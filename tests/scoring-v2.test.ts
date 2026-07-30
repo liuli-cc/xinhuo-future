@@ -48,6 +48,26 @@ test("多题报告总分在0-100范围内", () => {
   const report = generateReportV2(answers);
   assert.ok(report.overallScore >= 0);
   assert.ok(report.overallScore <= 100);
+  assert.equal(
+    report.overallScore,
+    Object.values(report.dimensions).reduce((sum, score) => sum + score, 0),
+  );
   assert.ok(Array.isArray(report.strengths));
   assert.ok(report.improvements.length > 0);
+  assert.equal(report.actionPlan.length, 3);
+});
+
+test("五维分值按30+20+20+15+15直接合成百分制总分", () => {
+  const scored = scoreAnswerV2(
+    "请介绍一个项目",
+    "在课程项目中，我负责接口设计，目标是两周内完成核心模块。我先分析需求和数据指标，再对比两套方案并完成12个接口，最终查询耗时降低35%。",
+    90,
+    ["接口", "数据"],
+    null,
+  );
+  assert.equal(
+    scored.score,
+    Object.values(scored.dimensions).reduce((sum, score) => sum + score, 0),
+  );
+  assert.ok(scored.score >= 60, `score=${scored.score}`);
 });
