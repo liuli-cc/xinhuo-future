@@ -136,3 +136,28 @@ Python、React、数 据 分 析
   assert.equal(resume.projects.length, 1);
   assert.equal(resume.competitions.length, 1);
 });
+
+test("从教育背景内嵌的所获奖项和自评软件清单补全 OCR 字段", () => {
+  const resume = parseResumeStructure(`
+张小明
+求职岗位：财务专员
+
+教育背景
+内蒙古有价职大学 数学与应用数学 | 本科 2019.09-2023.06
+主修课程：微观经济学、宏观经济学、统计学、会计学等。
+所获奖项：校级优秀学生干部、校级社会实践奖学金、第八届互联网+创新创业大赛优秀奖、校级
+优秀学生标兵、校心理剧大赛三等奖。
+
+自我评价
+拥有财务相关实习经历，熟悉掌握 Word、PowerPoint、Excel、Photoshop、Xmind 等软件；
+  `);
+
+  assert.equal(resume.major, "数学与应用数学");
+  assert.deepEqual(resume.skills, ["Word", "PowerPoint", "Excel", "Photoshop", "Xmind"]);
+  assert.ok(resume.competitions.some(entry => (
+    /互联网\+创新创业大赛/.test(entry.name) && entry.award === "优秀奖"
+  )));
+  assert.ok(resume.competitions.some(entry => (
+    /心理剧大赛/.test(entry.name) && entry.award === "三等奖"
+  )));
+});

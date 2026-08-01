@@ -3390,3 +3390,135 @@ p { text-wrap: pretty; }
   .live-answer-finished { grid-column: 1 / -1; width: 100%; }
   .report-expression dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ── Interview studio refinement: calm, state-led motion ── */
+.interview-studio-root {
+  --studio-quiet: oklch(0.13 0.02 258);
+  --studio-raised: oklch(0.18 0.028 258);
+  --studio-focus: oklch(0.72 0.15 250 / .16);
+}
+.interview-studio-root--setup .voice-interview-setup {
+  max-width: 1280px;
+  gap: 28px;
+}
+.interview-studio-root--setup .setup-steps-panel {
+  padding: 8px 0;
+}
+.interview-studio-root--setup .step-item {
+  position: relative;
+  border-radius: 12px;
+  transition: background .2s var(--ease-out-quart), border-color .2s var(--ease-out-quart), opacity .2s var(--ease-out-quart);
+}
+.interview-studio-root--setup .step-item.active {
+  background: var(--studio-focus);
+  border-color: oklch(0.72 0.15 250 / .38);
+  opacity: 1;
+}
+.interview-studio-root--setup .step-item.done .step-num {
+  color: var(--accent-ink);
+  background: var(--green);
+}
+.interview-studio-root--setup .setup-card {
+  background: var(--studio-quiet);
+  border-color: oklch(0.9 0.03 255 / .15);
+}
+.interview-studio-root--setup .setup-interviewer-preview {
+  background: var(--studio-quiet);
+  border-color: oklch(0.9 0.03 255 / .15);
+}
+.interview-studio-root--setup .upload-zone {
+  position: relative;
+  isolation: isolate;
+  transition: border-color .18s var(--ease-out-quart), background .18s var(--ease-out-quart), transform .18s var(--ease-out-quart);
+}
+.interview-studio-root--setup .upload-zone:hover {
+  transform: translateY(-1px);
+}
+.interview-studio-root--setup .resume-uploader.drag-over .upload-zone {
+  box-shadow: inset 0 0 0 1px oklch(0.72 0.15 250 / .32);
+}
+.interview-studio-root--setup .plan-question-item {
+  border-radius: 10px;
+  transition: background .18s var(--ease-out-quart), border-color .18s var(--ease-out-quart);
+}
+.interview-studio-root--setup .plan-question-item:hover {
+  background: var(--studio-raised);
+  border-color: oklch(0.72 0.15 250 / .28);
+}
+
+.interview-studio-root--active .live-interview-stage {
+  min-height: 650px;
+  align-items: stretch;
+}
+.interview-studio-root--active .live-mentor-panel {
+  position: relative;
+  background: linear-gradient(160deg, oklch(0.17 0.032 258), var(--studio-quiet) 58%);
+  border-color: oklch(0.72 0.15 250 / .24);
+}
+.interview-studio-root--active .live-mentor-panel::before {
+  content: "";
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  right: -72px;
+  top: 96px;
+  z-index: 0;
+  border-radius: 50%;
+  background: oklch(0.72 0.15 250 / .08);
+  filter: blur(2px);
+  pointer-events: none;
+}
+.interview-studio-root--active .live-mentor-panel > * { position: relative; z-index: 1; }
+.interview-studio-root--active .live-conversation-panel {
+  background: var(--studio-quiet);
+  border-color: oklch(0.9 0.03 255 / .15);
+}
+.interview-studio-root--active .live-conversation-header {
+  background: oklch(0.18 0.026 258 / .58);
+}
+.interview-studio-root--active .live-transcript-feed {
+  background: oklch(0.115 0.018 258 / .5);
+}
+.interview-studio-root--active .live-transcript-entry {
+  will-change: transform, opacity;
+}
+.interview-studio-root--active .live-transcript-entry p {
+  border-color: oklch(0.9 0.03 255 / .12);
+}
+.interview-studio-root--active .live-transcript-entry.candidate p {
+  background: oklch(0.72 0.15 250 / .13);
+  border-color: oklch(0.72 0.15 250 / .26);
+}
+.interview-studio-root--active .live-turn-console {
+  background: oklch(0.145 0.022 258);
+}
+.interview-studio-root--active .live-speech-status.status-hearing {
+  border-radius: 10px;
+  background: oklch(0.72 0.12 156 / .055);
+}
+
+.report-score-ring {
+  --ring-progress: 0;
+  background: conic-gradient(var(--accent) calc(var(--ring-progress) * 3.6deg), var(--bg-alt) 0deg) !important;
+  will-change: transform;
+}
+.report-dimension-fill { will-change: transform; }
+.interview-studio-root--report .report-hero-v2,
+.interview-studio-root--report .report-expression {
+  border-color: oklch(0.9 0.03 255 / .16);
+}
+.interview-studio-root--report .report-dimensions .dim-card {
+  min-height: 104px;
+  background: var(--studio-quiet);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .interview-studio-root .upload-zone,
+  .interview-studio-root .step-item,
+  .interview-studio-root .plan-question-item,
+  .interview-studio-root .live-transcript-entry {
+    transition: none;
+    transform: none !important;
+  }
+  .interview-studio-root--active .live-mentor-panel::before { display: none; }
+}
