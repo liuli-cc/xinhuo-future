@@ -1,6 +1,7 @@
 "use client";
 
 import * as THREE from "three";
+import { gsap } from "gsap";
 import { useEffect, useRef } from "react";
 
 export type InterviewerState = "idle" | "thinking" | "speaking" | "listening" | "scoring";
@@ -17,6 +18,15 @@ type Rig = {
   leftArm: THREE.Group;
   rightArm: THREE.Group;
   eyes: THREE.Mesh[];
+};
+
+type Pose = {
+  headTilt: number;
+  headTurn: number;
+  headNod: number;
+  leftArm: number;
+  rightArm: number;
+  rightArmPitch: number;
 };
 
 function capsule(
@@ -141,6 +151,16 @@ export default function VirtualInterviewer({
   const mountRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
   const audioLevelRef = useRef(audioLevel);
+  const rigRef = useRef<Rig | null>(null);
+  const reducedMotionRef = useRef(false);
+  const poseRef = useRef<Pose>({
+    headTilt: 0,
+    headTurn: 0,
+    headNod: 0,
+    leftArm: 0.08,
+    rightArm: -0.08,
+    rightArmPitch: 0,
+  });
 
   useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => { audioLevelRef.current = audioLevel; }, [audioLevel]);
@@ -179,7 +199,10 @@ export default function VirtualInterviewer({
     scene.add(floor);
 
     const rig = buildLiuliTeacher(scene);
+    rigRef.current = rig;
+    const poseState = poseRef.current;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    reducedMotionRef.current = reducedMotion;
     let frame = 0;
     let disposed = false;
     const startedAt = Date.now();
@@ -200,30 +223,20 @@ export default function VirtualInterviewer({
       const t = (Date.now() - startedAt) / 1000;
       const current = stateRef.current;
       const motion = reducedMotion ? 0 : 1;
+      const pose = poseState;
       rig.root.position.y = -0.18 + Math.sin(t * 1.8) * 0.018 * motion;
       rig.root.rotation.y = Math.sin(t * 0.48) * 0.035 * motion;
-      rig.head.rotation.set(0, 0, 0);
-      rig.leftArm.rotation.set(0, 0, 0.08);
-      rig.rightArm.rotation.set(0, 0, -0.08);
-
-      if (current === "listening") {
-        rig.head.rotation.z = -0.055 + Math.sin(t * 1.4) * 0.022 * motion;
-        rig.head.rotation.x = Math.sin(t * 2.1) * 0.018 * motion;
-        rig.rightArm.rotation.z = -0.23;
-      } else if (current === "thinking") {
-        rig.head.rotation.z = 0.09;
-        rig.head.rotation.y = -0.12;
-        rig.rightArm.rotation.z = -1.38;
-        rig.rightArm.rotation.x = -0.28;
-      } else if (current === "speaking") {
-        rig.head.rotation.x = Math.sin(t * 3.4) * 0.018 * motion;
-        rig.rightArm.rotation.z = -0.72 + Math.sin(t * 4.4) * 0.18 * motion;
-        rig.rightArm.rotation.x = -0.18;
-      } else if (current === "scoring") {
-        rig.head.rotation.x = 0.1;
-        rig.leftArm.rotation.z = 0.5;
-        rig.rightArm.rotation.z = -0.5 + Math.sin(t * 5) * 0.035 * motion;
-      }
+      rig.head.rotation.set(
+        pose.headNod + (current === "speaking" ? Math.sin(t * 3.4) * 0.018 * motion : 0),
+        pose.headTurn,
+        pose.headTilt + (current === "listening" ? Math.sin(t * 1.4) * 0.018 * motion : 0),
+      );
+      rig.leftArm.rotation.set(0, 0, pose.leftArm);
+      rig.rightArm.rotation.set(
+        pose.rightArmPitch,
+        0,
+        pose.rightArm + (current === "speaking" ? Math.sin(t * 4.4) * 0.12 * motion : current === "scoring" ? Math.sin(t * 5) * 0.03 * motion : 0),
+      );
 
       const blink = !reducedMotion && Math.sin(t * 0.82) > 0.992;
       rig.eyes.forEach(eye => { eye.scale.y = blink ? 0.08 : 1; });
@@ -239,6 +252,8 @@ export default function VirtualInterviewer({
       disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
+      gsap.killTweensOf(poseState);
+      rigRef.current = null;
       renderer.dispose();
       renderer.domElement.remove();
       scene.traverse(object => {
@@ -249,6 +264,31 @@ export default function VirtualInterviewer({
       });
     };
   }, []);
+
+  useEffect(() => {
+    if (!rigRef.current) return;
+    const target: Pose = state === "listening"
+      ? { headTilt: -0.048, headTurn: 0, headNod: 0, leftArm: 0.08, rightArm: -0.23, rightArmPitch: 0 }
+      : state === "thinking"
+        ? { headTilt: 0.08, headTurn: -0.12, headNod: 0.02, leftArm: 0.08, rightArm: -1.18, rightArmPitch: -0.22 }
+        : state === "speaking"
+          ? { headTilt: 0, headTurn: 0, headNod: 0, leftArm: 0.08, rightArm: -0.68, rightArmPitch: -0.16 }
+          : state === "scoring"
+            ? { headTilt: 0, headTurn: 0, headNod: 0.1, leftArm: 0.5, rightArm: -0.5, rightArmPitch: 0 }
+            : { headTilt: 0, headTurn: 0, headNod: 0, leftArm: 0.08, rightArm: -0.08, rightArmPitch: 0 };
+
+    if (reducedMotionRef.current) {
+      Object.assign(poseRef.current, target);
+      return;
+    }
+
+    gsap.to(poseRef.current, {
+      ...target,
+      duration: 0.28,
+      ease: "power3.out",
+      overwrite: "auto",
+    });
+  }, [state]);
 
   const expression = state === "listening"
     ? "专注倾听"

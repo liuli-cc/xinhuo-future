@@ -30,7 +30,11 @@ import {
   extractResumeTextWithOcr,
   isResumeImage,
 } from "../../lib/client-resume-ocr";
-import { useEffect, useRef, useState } from "react";
+import { gsap } from "gsap";
+import { useGSAP } from "@gsap/react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+
+gsap.registerPlugin(useGSAP);
 
 /* ── 类型 ── */
 type SetupStep = "resume" | "job" | "plan" | "ready";
@@ -52,6 +56,7 @@ const providerConsoles: Record<InterviewModelProvider, string> = {
 };
 
 export default function InterviewPage() {
+  const studioRef = useRef<HTMLDivElement>(null);
   
 
   /* ── 页面状态 ── */
@@ -126,6 +131,84 @@ export default function InterviewPage() {
     setToast(msg);
     setTimeout(() => setToast(""), dur);
   };
+
+  useGSAP(() => {
+    const root = studioRef.current;
+    if (!root || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    if (pageMode === "setup") {
+      const panel = root.querySelector<HTMLElement>("[data-studio-panel]");
+      if (panel) {
+        gsap.fromTo(panel, { autoAlpha: 0, x: 18 }, {
+          autoAlpha: 1,
+          x: 0,
+          duration: 0.26,
+          ease: "power3.out",
+        });
+      }
+      const activeStep = root.querySelector<HTMLElement>(".step-item.active");
+      if (activeStep) {
+        gsap.fromTo(activeStep, { x: -5 }, { x: 0, duration: 0.22, ease: "power3.out" });
+      }
+      const planQuestions = root.querySelectorAll<HTMLElement>("[data-plan-question]");
+      if (planQuestions.length) {
+        gsap.fromTo(planQuestions, { autoAlpha: 0, y: 8 }, {
+          autoAlpha: 1,
+          y: 0,
+          duration: 0.22,
+          stagger: 0.045,
+          ease: "power3.out",
+        });
+      }
+    }
+
+    if (pageMode === "active") {
+      const entries = Array.from(root.querySelectorAll<HTMLElement>("[data-live-entry]"));
+      const latestEntry = entries.at(-1);
+      if (latestEntry) {
+        gsap.fromTo(latestEntry, { autoAlpha: 0, y: 10 }, {
+          autoAlpha: 1,
+          y: 0,
+          duration: 0.22,
+          ease: "power3.out",
+        });
+      }
+      const console = root.querySelector<HTMLElement>("[data-live-console]");
+      if (console) {
+        gsap.fromTo(console, { autoAlpha: 0, y: 8 }, {
+          autoAlpha: 1,
+          y: 0,
+          duration: 0.2,
+          ease: "power3.out",
+        });
+      }
+    }
+
+    if (pageMode === "report" && report) {
+      const scoreRing = root.querySelector<HTMLElement>(".report-score-ring");
+      if (scoreRing) {
+        gsap.set(scoreRing, { "--ring-progress": 0 });
+        gsap.to(scoreRing, {
+          "--ring-progress": report.overallScore,
+          duration: 0.72,
+          ease: "power3.out",
+        });
+      }
+      const dimensionFills = root.querySelectorAll<HTMLElement>(".report-dimension-fill");
+      if (dimensionFills.length) {
+        gsap.fromTo(dimensionFills, { scaleX: 0 }, {
+          scaleX: 1,
+          duration: 0.52,
+          stagger: 0.07,
+          ease: "power3.out",
+        });
+      }
+    }
+  }, {
+    scope: studioRef,
+    dependencies: [pageMode, setupStep, conversationLog.length, index, report?.calculatedAt],
+    revertOnUpdate: true,
+  });
 
   /* ── 计时器 ── */
   useEffect(() => {
@@ -730,6 +813,7 @@ export default function InterviewPage() {
      ═══════════════════════════════════════════ */
   if (pageMode === "setup") {
     return (
+      <div ref={studioRef} className="interview-studio-root interview-studio-root--setup">
       <PortalFrame active="interview" eyebrow="INTERVIEW STUDIO" title="和 liuli 老师，完成一场真实的模拟面试" subtitle="多格式简历识别 · 连续语音追问 · 约 15 分钟 · 结构化复盘">
         <div className="voice-interview-setup interview-v3">
           {/* 左侧：进度步骤 */}
@@ -756,7 +840,7 @@ export default function InterviewPage() {
           <section className="setup-config-panel">
             {/* Step 1: 简历 */}
             {setupStep === "resume" && (
-              <div className="setup-card portal-card">
+              <div className="setup-card portal-card" data-studio-panel>
                 <div className="card-heading"><div><span>STEP 1</span><h2>上传简历</h2></div></div>
                 <ResumeUploader onFileSelected={handleResumeFile} uploading={resumeUploading} progress={resumeUploadProgress} error={resumeError} />
                 {resumeParsed && (
@@ -789,7 +873,7 @@ export default function InterviewPage() {
 
             {/* Step 2: 岗位 */}
             {setupStep === "job" && (
-              <div className="setup-card portal-card">
+              <div className="setup-card portal-card" data-studio-panel>
                 <div className="card-heading"><div><span>STEP 2</span><h2>选择或填写岗位</h2></div></div>
                 <div className="job-source-tabs">
                   <button className={jobSource === "none" ? "active" : ""} onClick={() => setJobSource("none")}>不指定岗位</button>
@@ -845,7 +929,7 @@ export default function InterviewPage() {
 
             {/* Step 3: 模型 & 计划 */}
             {(setupStep === "plan" || setupStep === "ready") && (
-              <div className="setup-card portal-card">
+              <div className="setup-card portal-card" data-studio-panel>
                 <div className="card-heading"><div><span>STEP 3</span><h2>生成面试计划</h2></div></div>
 
                 <div className="job-source-tabs" style={{ marginBottom: 14 }}>
@@ -919,7 +1003,7 @@ export default function InterviewPage() {
                     <h3>15 分钟谈话提纲（面试官会根据回答自然追问）</h3>
                     <div className="plan-questions">
                       {interviewPlan.questions.map((q, i) => (
-                        <div key={q.id} className="plan-question-item">
+                        <div key={q.id} className="plan-question-item" data-plan-question>
                           <span className="q-num">{String.fromCharCode(65 + i)}</span>
                           <div><b>{q.label}</b><small>{q.guidance}</small></div>
                           <span className="q-cat">{q.category === "self_intro" ? "自我介绍" : q.category === "resume_deep" ? "简历深挖" : q.category === "professional" ? "专业能力" : q.category === "scenario" ? "情景处理" : q.category === "teamwork" ? "团队协作" : q.category === "pressure" ? "压力追问" : q.category === "career" ? "职业规划" : "反问"}</span>
@@ -960,6 +1044,7 @@ export default function InterviewPage() {
 
         {toast && <div className="portal-toast" style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "var(--surface-elevated)", border: "1px solid var(--line)", borderRadius: "var(--radius)", padding: "12px 20px", fontSize: 11, zIndex: 100 }}>{toast}</div>}
       </PortalFrame>
+      </div>
     );
   }
 
@@ -980,6 +1065,7 @@ export default function InterviewPage() {
               ? "正在整理反馈"
               : "实时面试进行中";
     return (
+      <div ref={studioRef} className="interview-studio-root interview-studio-root--active">
       <PortalFrame active="interview" eyebrow={`${jobParsed?.title ?? "通用能力"} INTERVIEW`}
         title="与liuli老师的实时模拟面试"
         subtitle="约 15 分钟连续对话 · Chrome 免费实时识别 · 原始录音不保存"
@@ -991,7 +1077,7 @@ export default function InterviewPage() {
         )}
       >
         <div className="live-interview-stage interview-v3">
-          <aside className="live-mentor-panel portal-card">
+          <aside className="live-mentor-panel portal-card" data-studio-mentor>
             <div className="live-call-badge">
               <span className={callPaused ? "paused" : ""} />
               {statusCopy}
@@ -1038,13 +1124,13 @@ export default function InterviewPage() {
                 </div>
               )}
               {conversationLog.slice(-7).map((entry, logIndex) => (
-                <article className={`live-transcript-entry ${entry.speaker}`} key={`${entry.speaker}-${logIndex}-${entry.text.slice(0, 12)}`}>
+                <article className={`live-transcript-entry ${entry.speaker}`} data-live-entry key={`${entry.speaker}-${logIndex}-${entry.text.slice(0, 12)}`}>
                   <span>{entry.speaker === "interviewer" ? "liuli老师" : "我"}</span>
                   <p>{entry.text}</p>
                 </article>
               ))}
               {liveListening && liveTranscript && (
-                <article className="live-transcript-entry candidate is-live">
+                <article className="live-transcript-entry candidate is-live" data-live-entry>
                   <span>我 · 实时</span>
                   <p>{liveTranscript}</p>
                 </article>
@@ -1057,7 +1143,7 @@ export default function InterviewPage() {
               )}
             </div>
 
-            <div className="live-turn-console">
+            <div className="live-turn-console" data-live-console>
               <ContinuousSpeechRecognition
                 active={liveListening && !callPaused && !useTextFallback}
                 turnKey={liveTurnKey}
@@ -1130,6 +1216,7 @@ export default function InterviewPage() {
         </div>
         {toast && <div className="portal-toast" style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "var(--surface-elevated)", border: "1px solid var(--line)", borderRadius: "var(--radius)", padding: "12px 20px", fontSize: 11, zIndex: 100 }}>{toast}</div>}
       </PortalFrame>
+      </div>
     );
   }
 
@@ -1138,6 +1225,7 @@ export default function InterviewPage() {
      ═══════════════════════════════════════════ */
   if (pageMode === "report" && report) {
     return (
+      <div ref={studioRef} className="interview-studio-root interview-studio-root--report">
       <PortalFrame active="interview" eyebrow="INTERVIEW REPORT" title="本次面试报告"
         subtitle={`${jobParsed?.title ?? "通用能力"} · ${report.overallScore} 分`}
         actions={(
@@ -1153,7 +1241,7 @@ export default function InterviewPage() {
           </div>
         )}
       >
-        <div className="interview-report-page" id="interview-report-document">
+        <div className="interview-report-page" id="interview-report-document" data-studio-report>
           <section className={`report-save-state ${pendingReport ? "pending" : "saved"}`}>
             <b>{pendingReport ? "报告已在本机生成，尚未保存到云端" : "报告已生成并保存到云端"}</b>
             <span>{pendingReport ? "你仍可下载或打印；网络恢复后点击“重试云端保存”。" : `生成时间：${new Date(report.calculatedAt).toLocaleString("zh-CN", { hour12: false })}`}</span>
@@ -1177,9 +1265,9 @@ export default function InterviewPage() {
           {/* 总分 */}
           <section className="report-hero-v2 portal-card">
           <div className="report-score-ring" style={{
-            background: `conic-gradient(var(--accent) ${report.overallScore * 3.6}deg, var(--bg-alt) 0deg)`,
+            "--ring-progress": report.overallScore,
             width: 120, height: 120, borderRadius: "50%", display: "grid", placeItems: "center",
-          }}>
+          } as CSSProperties}>
             <div style={{ width: 96, height: 96, borderRadius: "50%", background: "var(--surface-card)", display: "grid", placeItems: "center" }}>
               <strong style={{ fontSize: 28 }}>{report.overallScore}</strong>
               <small style={{ fontSize: 8, color: "var(--muted)", display: "block" }}>综合得分</small>
@@ -1207,7 +1295,10 @@ export default function InterviewPage() {
                 <strong style={{ fontSize: 14 }}>{report.dimensions[d.key]}<small style={{ fontSize: 8, color: "var(--muted)" }}>/{d.max}</small></strong>
               </div>
               <div style={{ height: 4, background: "var(--bg-alt)", borderRadius: 2, overflow: "hidden" }}>
-                <div style={{ height: "100%", width: `${(report.dimensions[d.key] / d.max) * 100}%`, background: "var(--accent)", borderRadius: 2, transition: "width 0.8s ease" }} />
+                <div
+                  className="report-dimension-fill"
+                  style={{ height: "100%", width: `${(report.dimensions[d.key] / d.max) * 100}%`, background: "var(--accent)", borderRadius: 2, transformOrigin: "left center" }}
+                />
               </div>
             </article>
           ))}
@@ -1276,6 +1367,7 @@ export default function InterviewPage() {
         </div>
         {toast && <div className="portal-toast" style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "var(--surface-elevated)", border: "1px solid var(--line)", borderRadius: "var(--radius)", padding: "12px 20px", fontSize: 11, zIndex: 100 }}>{toast}</div>}
       </PortalFrame>
+      </div>
     );
   }
 
