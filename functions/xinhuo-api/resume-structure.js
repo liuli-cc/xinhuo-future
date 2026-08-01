@@ -19,7 +19,8 @@ const SECTION_DEFINITIONS = {
   ],
   internships: [
     "实习经历", "实习经验", "工作经历", "工作经验", "社会实践", "校园实践",
-    "职业经历", "professional experience", "work experience", "internship experience", "internships",
+    "在校经历", "校园经历", "学生工作", "职业经历",
+    "professional experience", "work experience", "internship experience", "internships",
   ],
   competitions: [
     "竞赛与荣誉经历", "竞赛荣誉经历", "竞赛经历", "比赛经历", "获奖经历", "荣誉奖项", "奖项荣誉", "获奖情况",
@@ -63,7 +64,7 @@ function normalizeResumeText(text) {
 
 function cleanLine(value) {
   return String(value || "")
-    .replace(/^[\s•·●○►▪■◆◇★☆▶>-]+/, "")
+    .replace(/^[\s•·●○►▪■◆◇★☆▶>@“”‘’"'-]+/, "")
     .replace(/^\d{1,2}[.、)]\s*/, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -174,6 +175,7 @@ function plausibleMajor(value) {
   return cleanLine(value)
     .replace(/\s+(?:博士研究生|博士|硕士研究生|硕士|本科|学士|大专|专科|高职).*$/, "")
     .replace(/\s+(?:应届毕业生|应届生).*$/, "")
+    .replace(/[|｜/·•\-—–]+\s*$/, "")
     .slice(0, 80)
     .trim();
 }
@@ -322,11 +324,73 @@ function sectionOrLabeled(text, sections, key) {
 }
 
 function splitCompetitionAward(value) {
-  const normalized = cleanLine(value);
+  const normalized = cleanLine(value).replace(/[。；;]+$/, "");
   const match = /^(.*?)(?:\s+|[：:，,；;|-])?((?:国家级|省级|市级|校级|院级)?(?:特等奖|一等奖|二等奖|三等奖|金奖|银奖|铜奖|优秀奖|优胜奖|入围奖|奖学金|优秀学生|优秀干部|荣誉称号|证书).*)$/.exec(normalized);
   return match
     ? { name: match[1].trim() || normalized, award: match[2].trim() }
     : { name: normalized, award: "" };
+}
+
+function extractInlineCompetitionPairs(text) {
+  const normalized = normalizeResumeText(text);
+  const labels = ["所获奖项", "荣誉奖项", "获奖情况", "奖励情况"];
+  const entries = [];
+  const lines = normalized.split("\n");
+
+  for (const label of labels) {
+    const pattern = new RegExp(`^\\s*${escapeRegExp(label)}\\s*[:：]\\s*(.{2,800})$`, "i");
+    for (let index = 0; index < lines.length; index += 1) {
+      const match = pattern.exec(lines[index]);
+      if (!match) continue;
+      let awardBlock = match[1];
+      for (let offset = 1; offset <= 2 && index + offset < lines.length; offset += 1) {
+        const continuation = cleanLine(lines[index + offset]);
+        if (
+          !continuation
+          || headingKey(continuation)
+          || !/(?:竞赛|比赛|挑战赛|大赛|奖|荣誉|证书|优秀|先进)/.test(continuation)
+        ) {
+          break;
+        }
+        awardBlock += `、${continuation}`;
+      }
+      for (const value of awardBlock.split(/[、，,；;]+/)) {
+        const entry = cleanLine(value).replace(/[。；;]+$/, "");
+        if (
+          entry.length >= 2
+          && /(?:竞赛|比赛|挑战赛|大赛|奖|荣誉|证书|优秀|先进)/.test(entry)
+        ) {
+          entries.push({ name: entry, description: "" });
+        }
+      }
+    }
+  }
+
+  return entries.slice(0, 10);
+}
+
+function extractInlineSkills(text) {
+  const normalized = normalizeResumeText(text);
+  const values = [];
+  const pattern = /(?:熟练掌握|熟悉掌握|熟练使用|掌握|熟悉|会使用)\s*([^\n。；;]{2,240})/g;
+
+  for (const match of normalized.matchAll(pattern)) {
+    const candidates = match[1]
+      .replace(/等(?:办公)?软件.*$/, "")
+      .split(/[、，,|/]+/)
+      .map(cleanLine)
+      .filter(value => (
+        value.length >= 2
+        && value.length <= 40
+        && (
+          /[A-Za-z+#.]/.test(value)
+          || /(?:数据库|数据分析|机器学习|深度学习|办公软件|编程|建模|绘图|设计)/.test(value)
+        )
+      ));
+    values.push(...candidates);
+  }
+
+  return [...new Set(values)].slice(0, 24);
 }
 
 function parseInternshipPair(pair) {
@@ -350,19 +414,31 @@ function parseResumeStructure(text) {
   const sections = splitResumeSections(normalized);
   const projects = extractEntriesFromBlock(sectionOrLabeled(normalized, sections, "projects"), "projects");
   const internships = extractEntriesFromBlock(sectionOrLabeled(normalized, sections, "internships"), "internships").map(parseInternshipPair);
-  const competitions = extractEntriesFromBlock(sectionOrLabeled(normalized, sections, "competitions"), "competitions").map(pair => {
-    const parsed = splitCompetitionAward(pair.name);
-    return {
-      name: parsed.name,
-      award: pair.description || parsed.award,
-    };
-  });
+  const competitionPairs = [
+    ...extractEntriesFromBlock(sectionOrLabeled(normalized, sections, "competitions"), "competitions"),
+    ...extractInlineCompetitionPairs(normalized),
+  ];
+  const competitions = competitionPairs
+    .map(pair => {
+      const parsed = splitCompetitionAward(pair.name);
+      return {
+        name: parsed.name,
+        award: pair.description || parsed.award,
+      };
+    })
+    .filter((entry, index, entries) => (
+      entries.findIndex(candidate => (
+        candidate.name === entry.name && candidate.award === entry.award
+      )) === index
+    ))
+    .slice(0, 10);
+  const sectionSkills = extractResumeList(normalized, SECTION_DEFINITIONS.skills);
 
   return {
     name: extractResumeName(normalized),
     education: extractEducation(normalized, sections),
     major: extractMajor(normalized, sections),
-    skills: extractResumeList(normalized, SECTION_DEFINITIONS.skills),
+    skills: sectionSkills.length ? sectionSkills : extractInlineSkills(normalized),
     projects,
     internships,
     competitions,
