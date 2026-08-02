@@ -2,7 +2,10 @@
 
 import * as THREE from "three";
 import { gsap } from "gsap";
+import { useGSAP } from "@gsap/react";
 import { useEffect, useRef } from "react";
+
+gsap.registerPlugin(useGSAP);
 
 export type InterviewerState = "idle" | "thinking" | "speaking" | "listening" | "scoring";
 
@@ -41,96 +44,155 @@ function capsule(
   return mesh;
 }
 
+function rodBetween(
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  radius: number,
+  material: THREE.Material,
+) {
+  const direction = new THREE.Vector3().subVectors(end, start);
+  const mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius, direction.length(), 10),
+    material,
+  );
+  mesh.position.copy(start).add(end).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    direction.clone().normalize(),
+  );
+  return mesh;
+}
+
 function buildLiuliTeacher(scene: THREE.Scene): Rig {
   const root = new THREE.Group();
-  root.position.y = -0.18;
+  root.position.y = -0.14;
   scene.add(root);
 
-  const skin = new THREE.MeshStandardMaterial({ color: 0xf6c9a6, roughness: 0.78 });
-  const skinSoft = new THREE.MeshStandardMaterial({ color: 0xf2b998, roughness: 0.8 });
-  const hair = new THREE.MeshStandardMaterial({ color: 0x292331, roughness: 0.68 });
-  const jacket = new THREE.MeshStandardMaterial({ color: 0x5b63d8, roughness: 0.58 });
-  const shirt = new THREE.MeshStandardMaterial({ color: 0xf7f8ff, roughness: 0.86 });
-  const ink = new THREE.MeshStandardMaterial({ color: 0x262134, roughness: 0.5 });
-  const blush = new THREE.MeshStandardMaterial({ color: 0xf497a8, transparent: true, opacity: 0.6 });
+  const blue = new THREE.MeshStandardMaterial({ color: 0x35a8e0, roughness: 0.5 });
+  const blueSoft = new THREE.MeshStandardMaterial({ color: 0x7dd3fc, roughness: 0.62 });
+  const ivory = new THREE.MeshStandardMaterial({ color: 0xfffcf2, roughness: 0.8 });
+  const ink = new THREE.MeshStandardMaterial({ color: 0x182432, roughness: 0.55 });
+  const coral = new THREE.MeshStandardMaterial({ color: 0xff5c62, roughness: 0.48 });
+  const gold = new THREE.MeshStandardMaterial({ color: 0xf7c948, metalness: 0.12, roughness: 0.42 });
+  const blush = new THREE.MeshStandardMaterial({ color: 0xff8f9c, transparent: true, opacity: 0.34 });
 
-  const torso = capsule(0.53, 0.72, jacket);
-  torso.scale.set(1.08, 1, 0.72);
-  torso.position.y = -0.72;
+  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.58, 32, 24), blue);
+  torso.scale.set(0.96, 1.08, 0.76);
+  torso.position.y = -0.78;
+  torso.castShadow = true;
   root.add(torso);
 
-  const shirtFront = new THREE.Mesh(new THREE.SphereGeometry(0.31, 24, 16), shirt);
-  shirtFront.scale.set(1, 1.08, 0.3);
-  shirtFront.position.set(0, -0.51, 0.49);
-  root.add(shirtFront);
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.4, 28, 20), ivory);
+  belly.scale.set(0.96, 1.08, 0.3);
+  belly.position.set(0, -0.76, 0.48);
+  root.add(belly);
 
-  const neck = capsule(0.15, 0.18, skin);
-  neck.position.y = -0.03;
-  root.add(neck);
+  const collar = capsule(0.08, 0.68, coral, Math.PI / 2);
+  collar.scale.z = 0.72;
+  collar.position.set(0, -0.24, 0.02);
+  root.add(collar);
+
+  const bell = new THREE.Mesh(new THREE.SphereGeometry(0.13, 20, 14), gold);
+  bell.scale.y = 0.9;
+  bell.position.set(0, -0.31, 0.61);
+  bell.castShadow = true;
+  root.add(bell);
+  const bellMark = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.018, 0.03), ink);
+  bellMark.position.set(0, -0.29, 0.72);
+  root.add(bellMark);
 
   const head = new THREE.Group();
-  head.position.y = 0.52;
+  head.position.y = 0.48;
   root.add(head);
 
-  const hairBack = new THREE.Mesh(new THREE.SphereGeometry(0.67, 32, 24), hair);
-  hairBack.scale.set(0.98, 1.13, 0.86);
-  hairBack.position.set(0, 0.02, -0.08);
-  hairBack.castShadow = true;
-  head.add(hairBack);
+  const headShell = new THREE.Mesh(new THREE.SphereGeometry(0.72, 36, 28), blue);
+  headShell.scale.set(1, 0.96, 0.88);
+  headShell.castShadow = true;
+  head.add(headShell);
 
-  const face = new THREE.Mesh(new THREE.SphereGeometry(0.55, 32, 24), skin);
-  face.scale.set(0.92, 1.04, 0.82);
-  face.position.z = 0.16;
+  [-1, 1].forEach(side => {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.46, 4), blue);
+    ear.position.set(side * 0.48, 0.55, -0.03);
+    ear.rotation.set(0.12, 0, side * -0.13);
+    ear.castShadow = true;
+    head.add(ear);
+
+    const earInset = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.29, 4), blueSoft);
+    earInset.position.set(side * 0.48, 0.57, 0.11);
+    earInset.rotation.set(0.12, 0, side * -0.13);
+    head.add(earInset);
+  });
+
+  const face = new THREE.Mesh(new THREE.SphereGeometry(0.59, 32, 24), ivory);
+  face.scale.set(0.88, 0.86, 0.46);
+  face.position.set(0, -0.05, 0.48);
   face.castShadow = true;
   head.add(face);
 
-  const fringePieces = [
-    [-0.31, 0.42, 0.38, -0.28],
-    [-0.08, 0.49, 0.43, -0.1],
-    [0.18, 0.46, 0.39, 0.18],
-  ] as const;
-  fringePieces.forEach(([x, y, scale, tilt]) => {
-    const piece = new THREE.Mesh(new THREE.SphereGeometry(0.36, 20, 14), hair);
-    piece.scale.set(scale, 0.62, 0.52);
-    piece.position.set(x, y, 0.47);
-    piece.rotation.z = tilt;
-    head.add(piece);
-  });
-
   const eyes: THREE.Mesh[] = [];
-  [-0.2, 0.2].forEach(x => {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.052, 16, 12), ink);
-    eye.scale.set(0.72, 1, 0.55);
-    eye.position.set(x, 0.12, 0.63);
-    head.add(eye);
-    eyes.push(eye);
+  [-0.17, 0.17].forEach(x => {
+    const eyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.18, 20, 16), ivory);
+    eyeWhite.scale.set(0.72, 1.18, 0.45);
+    eyeWhite.position.set(x, 0.18, 0.7);
+    head.add(eyeWhite);
+
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.064, 16, 12), ink);
+    pupil.scale.set(0.78, 1.15, 0.48);
+    pupil.position.set(x, 0.15, 0.84);
+    head.add(pupil);
+    eyes.push(pupil);
+
+    const eyeLight = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 8), ivory);
+    eyeLight.position.set(x - 0.018, 0.18, 0.895);
+    head.add(eyeLight);
 
     const cheek = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 10), blush);
-    cheek.scale.set(1.35, 0.45, 0.35);
-    cheek.position.set(x * 1.46, -0.08, 0.61);
+    cheek.scale.set(1.45, 0.48, 0.3);
+    cheek.position.set(x * 1.7, -0.14, 0.76);
     head.add(cheek);
   });
 
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), skinSoft);
-  nose.position.set(0, 0.01, 0.69);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.075, 18, 14), coral);
+  nose.position.set(0, -0.02, 0.88);
+  nose.castShadow = true;
   head.add(nose);
 
   const smile = new THREE.Mesh(
-    new THREE.TorusGeometry(0.095, 0.012, 8, 24, Math.PI),
-    new THREE.MeshStandardMaterial({ color: 0x9a4f61, roughness: 0.6 }),
+    new THREE.TorusGeometry(0.13, 0.014, 8, 28, Math.PI),
+    ink,
   );
   smile.rotation.z = Math.PI;
-  smile.position.set(0, -0.17, 0.675);
+  smile.position.set(0, -0.2, 0.85);
   head.add(smile);
+
+  const noseLine = rodBetween(
+    new THREE.Vector3(0, -0.08, 0.865),
+    new THREE.Vector3(0, -0.18, 0.865),
+    0.009,
+    ink,
+  );
+  head.add(noseLine);
+
+  [-1, 1].forEach(side => {
+    [-0.11, 0, 0.11].forEach(offset => {
+      const whisker = rodBetween(
+        new THREE.Vector3(side * 0.23, -0.12 + offset, 0.82),
+        new THREE.Vector3(side * 0.56, -0.13 + offset * 1.35, 0.76),
+        0.009,
+        ink,
+      );
+      head.add(whisker);
+    });
+  });
 
   const makeArm = (side: -1 | 1) => {
     const pivot = new THREE.Group();
-    pivot.position.set(side * 0.55, -0.42, 0.05);
-    const sleeve = capsule(0.14, 0.52, jacket, side * -0.08);
-    sleeve.position.y = -0.28;
+    pivot.position.set(side * 0.53, -0.52, 0.05);
+    const sleeve = capsule(0.15, 0.46, blue, side * -0.06);
+    sleeve.position.y = -0.25;
     pivot.add(sleeve);
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.14, 18, 12), skin);
-    hand.position.set(side * 0.05, -0.64, 0.02);
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.17, 20, 14), ivory);
+    hand.position.set(side * 0.04, -0.58, 0.02);
     hand.castShadow = true;
     pivot.add(hand);
     root.add(pivot);
@@ -170,7 +232,7 @@ export default function VirtualInterviewer({
     if (!mount) return;
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
-    camera.position.set(0, 0.25, 5.5);
+    camera.position.set(0, 0.22, 5.35);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -180,18 +242,18 @@ export default function VirtualInterviewer({
     renderer.domElement.setAttribute("aria-hidden", "true");
     mount.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0xf5f6ff, 0x35304c, 2.4));
-    const keyLight = new THREE.DirectionalLight(0xffffff, 3.1);
+    scene.add(new THREE.HemisphereLight(0xeaf8ff, 0x17284a, 2.7));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 3.3);
     keyLight.position.set(2.8, 4.2, 4.5);
     keyLight.castShadow = true;
     scene.add(keyLight);
-    const rimLight = new THREE.DirectionalLight(0x8fa4ff, 1.8);
+    const rimLight = new THREE.DirectionalLight(0x65c9ff, 2.2);
     rimLight.position.set(-3.5, 1.4, -2);
     scene.add(rimLight);
 
     const floor = new THREE.Mesh(
       new THREE.CircleGeometry(1.35, 48),
-      new THREE.MeshStandardMaterial({ color: 0xcdd3f8, transparent: true, opacity: 0.34, roughness: 1 }),
+      new THREE.MeshStandardMaterial({ color: 0x4cb9ed, transparent: true, opacity: 0.24, roughness: 1 }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -1.48;
@@ -224,7 +286,7 @@ export default function VirtualInterviewer({
       const current = stateRef.current;
       const motion = reducedMotion ? 0 : 1;
       const pose = poseState;
-      rig.root.position.y = -0.18 + Math.sin(t * 1.8) * 0.018 * motion;
+      rig.root.position.y = -0.14 + Math.sin(t * 1.8) * 0.018 * motion;
       rig.root.rotation.y = Math.sin(t * 0.48) * 0.035 * motion;
       rig.head.rotation.set(
         pose.headNod + (current === "speaking" ? Math.sin(t * 3.4) * 0.018 * motion : 0),
@@ -265,16 +327,16 @@ export default function VirtualInterviewer({
     };
   }, []);
 
-  useEffect(() => {
+  useGSAP(() => {
     if (!rigRef.current) return;
     const target: Pose = state === "listening"
-      ? { headTilt: -0.048, headTurn: 0, headNod: 0, leftArm: 0.08, rightArm: -0.23, rightArmPitch: 0 }
+      ? { headTilt: -0.07, headTurn: 0.03, headNod: 0, leftArm: 0.22, rightArm: -0.22, rightArmPitch: 0 }
       : state === "thinking"
-        ? { headTilt: 0.08, headTurn: -0.12, headNod: 0.02, leftArm: 0.08, rightArm: -1.18, rightArmPitch: -0.22 }
+        ? { headTilt: 0.09, headTurn: -0.13, headNod: 0.02, leftArm: 0.12, rightArm: -1.28, rightArmPitch: -0.26 }
         : state === "speaking"
-          ? { headTilt: 0, headTurn: 0, headNod: 0, leftArm: 0.08, rightArm: -0.68, rightArmPitch: -0.16 }
+          ? { headTilt: 0, headTurn: 0, headNod: -0.015, leftArm: 0.08, rightArm: -0.8, rightArmPitch: -0.2 }
           : state === "scoring"
-            ? { headTilt: 0, headTurn: 0, headNod: 0.1, leftArm: 0.5, rightArm: -0.5, rightArmPitch: 0 }
+            ? { headTilt: 0, headTurn: 0, headNod: 0.11, leftArm: 0.52, rightArm: -0.52, rightArmPitch: 0 }
             : { headTilt: 0, headTurn: 0, headNod: 0, leftArm: 0.08, rightArm: -0.08, rightArmPitch: 0 };
 
     if (reducedMotionRef.current) {
@@ -288,7 +350,7 @@ export default function VirtualInterviewer({
       ease: "power3.out",
       overwrite: "auto",
     });
-  }, [state]);
+  }, { dependencies: [state], scope: mountRef, revertOnUpdate: true });
 
   const expression = state === "listening"
     ? "专注倾听"
@@ -305,7 +367,7 @@ export default function VirtualInterviewer({
       <div className="mentor-3d-stage" ref={mountRef} />
       <div className="mentor-identity">
         <strong>liuli老师</strong>
-        <span>青年职业导师 · 3D 实时形象</span>
+        <span>Q版机器猫导师 · 3D 实时形象</span>
       </div>
       <div className="interviewer-label">
         <span className={`indicator state-${state}`} />
