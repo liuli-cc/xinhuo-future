@@ -4,11 +4,19 @@
  * The public web bundle contains only the HTTPS API endpoint. Database
  * credentials and password hashes remain inside CloudBase.
  */
-const SESSION_STORAGE_KEY = "xinhuo_cloudbase_session";
-const PROFILE_STORAGE_KEY = "xinhuo_cloudbase_profile";
+import {
+  clearLegacySharedSession,
+  clearTabSession,
+  readTabProfile,
+  readTabSession,
+  writeTabProfile,
+  writeTabSession,
+} from "./tab-session";
+
 const PROFILE_EVENT = "xinhuo:profile";
 const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 let profileCache: unknown | null | undefined;
+let legacySharedSessionCleared = false;
 
 type ApiInput = string | URL | Request;
 
@@ -16,34 +24,39 @@ function apiBase() {
   return (process.env.NEXT_PUBLIC_API_BASE ?? "").trim().replace(/\/+$/, "");
 }
 
+function tabStorage() {
+  if (typeof window === "undefined") return null;
+  if (!legacySharedSessionCleared) {
+    clearLegacySharedSession(window.localStorage);
+    legacySharedSessionCleared = true;
+  }
+  return window.sessionStorage;
+}
+
 function sessionToken() {
-  if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(SESSION_STORAGE_KEY) ?? "";
+  const storage = tabStorage();
+  return storage ? readTabSession(storage) : "";
 }
 
 function saveSession(token: string) {
-  if (typeof window !== "undefined" && token) {
-    window.localStorage.setItem(SESSION_STORAGE_KEY, token);
-  }
+  const storage = tabStorage();
+  if (storage) writeTabSession(storage, token);
 }
 
 function saveProfile(profile: unknown) {
   if (typeof window === "undefined" || !profile || typeof profile !== "object") return;
+  const storage = tabStorage();
+  if (!storage) return;
   profileCache = profile;
-  window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  writeTabProfile(storage, profile);
   window.dispatchEvent(new Event(PROFILE_EVENT));
 }
 
 export function cachedUserProfile<T>() {
-  if (typeof window === "undefined") return null;
+  const storage = tabStorage();
+  if (!storage) return null;
   if (profileCache !== undefined) return profileCache as T | null;
-  const raw = window.localStorage.getItem(PROFILE_STORAGE_KEY);
-  try {
-    profileCache = raw ? JSON.parse(raw) : null;
-  } catch {
-    profileCache = null;
-    window.localStorage.removeItem(PROFILE_STORAGE_KEY);
-  }
+  profileCache = readTabProfile<T>(storage);
   return profileCache as T | null;
 }
 
@@ -55,8 +68,8 @@ export function subscribeUserProfile(listener: () => void) {
 
 function clearSession() {
   if (typeof window !== "undefined") {
-    window.localStorage.removeItem(SESSION_STORAGE_KEY);
-    window.localStorage.removeItem(PROFILE_STORAGE_KEY);
+    const storage = tabStorage();
+    if (storage) clearTabSession(storage);
     profileCache = null;
     window.dispatchEvent(new Event(PROFILE_EVENT));
   }
