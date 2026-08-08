@@ -129,7 +129,9 @@ function extractSectionPairs(text: string, sectionLabels: string[]): Array<{ nam
           pairs.push(current);
           current = { name: cleaned.slice(0, 80), description: "" };
         } else {
-          current.description += (current.description ? "；" : "") + cleaned;
+          // Keep extracted line boundaries. Inserting semicolons here makes a
+          // PDF line wrap look like broken punctuation in the preview.
+          current.description += (current.description ? "\n" : "") + cleaned;
         }
       }
       if (current && current.name) pairs.push(current);

@@ -64,9 +64,22 @@ function normalizeResumeText(text) {
 
 function cleanLine(value) {
   return String(value || "")
-    .replace(/^[\s•·●○►▪■◆◇★☆▶>@“”‘’"'-]+/, "")
+    .replace(/^[\s•·●○►▪■◆◇★☆▶>@“”‘’"'，,；;：:]+/, "")
     .replace(/^\d{1,2}[.、)]\s*/, "")
     .replace(/\s+/g, " ")
+    .trim();
+}
+
+function joinDescriptionLines(lines) {
+  return lines
+    .map(line => cleanLine(line).replace(DESCRIPTION_PREFIX_RE, "").trim())
+    .filter(Boolean)
+    // PDF text extraction often wraps one sentence across several lines. Keep
+    // that boundary as a newline instead of inventing a semicolon that appears
+    // in the middle of a sentence in the resume preview.
+    .join("\n")
+    .replace(/[ \t]+([，。！？；：])/g, "$1")
+    .replace(/^[；;]+|[；;]+$/g, "")
     .trim();
 }
 
@@ -267,10 +280,7 @@ function buildPair(title, description) {
   const cleanedTitle = cleanLine(title).replace(ENTRY_PREFIX_RE, "").trim();
   return {
     name: cleanedTitle.slice(0, 120),
-    description: description.map(line => cleanLine(line).replace(DESCRIPTION_PREFIX_RE, "").trim())
-      .filter(Boolean)
-      .join("；")
-      .slice(0, 1600),
+    description: joinDescriptionLines(description).slice(0, 1600),
   };
 }
 
