@@ -161,3 +161,19 @@ test("从教育背景内嵌的所获奖项和自评软件清单补全 OCR 字段
     /心理剧大赛/.test(entry.name) && entry.award === "三等奖"
   )));
 });
+
+test("不会把 PDF/OCR 换行强行显示成句中分号", () => {
+  const resume = parseResumeStructure(`
+项目经历
+校园招聘平台
+项目描述：负责首页和岗位列表开发
+使用 React 完成筛选和分页
+通过接口联调完成数据展示
+  `);
+
+  const description = resume.projects[0]?.description || "";
+  assert.match(description, /负责首页和岗位列表开发/);
+  assert.match(description, /React 完成筛选和分页/);
+  assert.match(description, /\n/);
+  assert.doesNotMatch(description, /开发；使用|分页；通过/);
+});
